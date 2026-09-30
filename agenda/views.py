@@ -4,5 +4,5 @@ from django.http import HttpResponse
 def index(req):
     return HttpResponse("Ola");
 
-def  cadastro(req):
+# def  cadastro(req):
     

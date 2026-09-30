@@ -24,32 +24,6 @@ class Paciente(models.Model):
     def __str__(self):
         return self.nome
 
-
-class Tratamento(models.Model):
-
-    class Frequencia(models.TextChoices):
-        DUASVEZES = 'DUAS VEZES', 'Duas Vezes'
-        SEMANAL = 'SEMANAL', 'Semanal'
-        QUINZENAL = 'QUINZENAL', 'Quinzenal'
-        MENSAL = 'MENSAL', 'Mensal'
-
-    paciente = models.ForeignKey(
-        Paciente,
-        on_delete=models.CASCADE,
-        related_name='tratamentos'
-    )
-
-    data_inicio = models.DateField()
-    data_fim_prevista = models.DateField()
-
-    frequencia = models.CharField(
-        max_length=10,
-        choices=Frequencia.choices
-    )
-
-    ativo = models.BooleanField(default=True)
-
-
 class Consulta(models.Model):
 
     class Status(models.TextChoices):
@@ -57,8 +31,8 @@ class Consulta(models.Model):
         REALIZADA = 'REALIZADA', 'Realizada'
         CANCELADA = 'CANCELADA', 'Cancelada'
 
-    tratamento = models.ForeignKey(
-        Tratamento,
+    paciente = models.ForeignKey(
+        Paciente,
         on_delete=models.CASCADE,
         related_name='consultas'
     )
@@ -75,3 +49,27 @@ class Consulta(models.Model):
         max_length=255,
         blank=True
     )
+
+class Tratamento(models.Model):
+
+    class Frequencia(models.TextChoices):
+        DUASVEZES = 'DUAS VEZES', 'Duas Vezes'
+        SEMANAL = 'SEMANAL', 'Semanal'
+        QUINZENAL = 'QUINZENAL', 'Quinzenal'
+        MENSAL = 'MENSAL', 'Mensal'
+
+    consulta = models.ForeignKey(
+        Consulta,
+        on_delete=models.CASCADE,
+        related_name='tratamentos'
+    )
+
+    data_inicio = models.DateField()
+    data_fim_prevista = models.DateField()
+
+    frequencia = models.CharField(
+        max_length=10,
+        choices=Frequencia.choices
+    )
+
+    ativo = models.BooleanField(default=True)
