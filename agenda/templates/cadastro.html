@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Cadastro</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f4f6f8;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 420px;
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            color: #222;
+        }
+
+        .subtitle {
+            color: #777;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: bold;
+            color: #444;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #4f46e5;
+        }
+
+        button {
+            width: 100%;
+            padding: 13px;
+            margin-top: 8px;
+            border: none;
+            border-radius: 8px;
+            background: #4f46e5;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #4338ca;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>Cadastro</h1>
+        <p class="subtitle">Preencha seus dados para criar uma conta.</p>
+
+        <form method="POST">
+
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="nome">Nome</label>
+                <input
+                    type="text"
+                    id="nome"
+                    name="nome"
+                    placeholder="Digite seu nome"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    placeholder="seuemail@exemplo.com"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="telefone">Telefone</label>
+                <input
+                    type="tel"
+                    id="telefone"
+                    name="telefone"
+                    placeholder="(87) 99999-9999"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="senha">Senha</label>
+                <input
+                    type="password"
+                    id="senha"
+                    name="senha"
+                    placeholder="Digite sua senha"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="confirmar_senha">Confirmar senha</label>
+                <input
+                    type="password"
+                    id="confirmar_senha"
+                    name="confirmar_senha"
+                    placeholder="Digite a senha novamente"
+                    required
+                >
+            </div>
+
+            <button type="submit">
+                Cadastrar
+            </button>
+
+        </form>
+
+    </div>
+
+</body>
+</html>
