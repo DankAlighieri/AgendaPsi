@@ -84,6 +84,15 @@
     </style>
 </head>
 
+<!--script js para enviar um popup-->
+{% if messages %}
+    <script>
+        {% for message in messages %}
+            alert("{{ message|escapejs }}");
+        {% endfor %}
+    </script>
+{% endif %}
+
 <body>
 
     <div class="container">
@@ -92,67 +101,11 @@
         <p class="subtitle">Preencha seus dados para criar uma conta.</p>
 
         <form method="POST">
-
+            <!--Enviando os dados para o backend via post-->
             {% csrf_token %}
-
-            <div class="form-group">
-                <label for="nome">Nome</label>
-                <input
-                    type="text"
-                    id="nome"
-                    name="nome"
-                    placeholder="Digite seu nome"
-                    required
-                >
-            </div>
-
-            <div class="form-group">
-                <label for="email">E-mail</label>
-                <input
-                    type="email"
-                    id="email"
-                    name="email"
-                    placeholder="seuemail@exemplo.com"
-                    required
-                >
-            </div>
-
-            <div class="form-group">
-                <label for="telefone">Telefone</label>
-                <input
-                    type="tel"
-                    id="telefone"
-                    name="telefone"
-                    placeholder="(87) 99999-9999"
-                >
-            </div>
-
-            <div class="form-group">
-                <label for="senha">Senha</label>
-                <input
-                    type="password"
-                    id="senha"
-                    name="senha"
-                    placeholder="Digite sua senha"
-                    required
-                >
-            </div>
-
-            <div class="form-group">
-                <label for="confirmar_senha">Confirmar senha</label>
-                <input
-                    type="password"
-                    id="confirmar_senha"
-                    name="confirmar_senha"
-                    placeholder="Digite a senha novamente"
-                    required
-                >
-            </div>
-
-            <button type="submit">
-                Cadastrar
-            </button>
-
+            <!--campos inputs sao renderizados diretos das definicoes em forms.py-->
+            {{ form }}
+            <button type="submit">Salvar</button>
         </form>
 
     </div>

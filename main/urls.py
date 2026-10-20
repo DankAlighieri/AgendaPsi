@@ -22,4 +22,6 @@ from agenda import views
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.index, name='index'),
+    path('cadastroProfissional/', views.cadastroProfissional, name = "cadastroProfissional"),
+    path('teste', views.teste, name = 'teste')
 ]
