@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Profissional, Paciente, Consulta, Tratamento
+from .models import Agenda, Profissional, Paciente, Consulta, Tratamento
 
 
 class PacienteInline(admin.TabularInline):
@@ -38,6 +38,22 @@ class ConsultaAdmin(admin.ModelAdmin):
     list_filter = ('status', 'data_hora')
     search_fields = ('paciente__nome',)
     inlines = [TratamentoInline]
+
+
+@admin.register(Agenda)
+class AgendaAdmin(admin.ModelAdmin):
+    list_display = ('profissional', 'data_hora', 'ocupado')
+    list_filter = ('profissional', 'data_hora')
+    search_fields = ('profissional__nome',)
+
+    @admin.display(boolean=True, description='Ocupado')
+    def ocupado(self, obj):
+        return obj.ocupado
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.consultas.exists():
+            return ('profissional', 'data_hora')
+        return ()
 
 
 @admin.register(Tratamento)
