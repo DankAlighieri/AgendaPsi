@@ -19,6 +19,8 @@ class Paciente(models.Model):
         related_name='pacientes'
     )
 
+    data_nascimento = models.DateField(null=True, blank=True)
+    cpf = models.CharField(max_length=14, blank=True)
     nome = models.CharField(max_length=150)
     telefone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
@@ -115,23 +117,88 @@ class Consulta(models.Model):
 class Tratamento(models.Model):
 
     class Frequencia(models.TextChoices):
-        DUASVEZES = 'DUAS VEZES', 'Duas Vezes'
+        DUASVEZES = 'DUAS VEZES', 'Duas vezes por semana'
         SEMANAL = 'SEMANAL', 'Semanal'
         QUINZENAL = 'QUINZENAL', 'Quinzenal'
         MENSAL = 'MENSAL', 'Mensal'
 
-    consulta = models.ForeignKey(
-        Consulta,
-        on_delete=models.CASCADE,
+    paciente = models.ForeignKey(
+        Paciente,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name='tratamentos'
     )
 
     data_inicio = models.DateField()
-    data_fim_prevista = models.DateField()
+    data_fim_prevista = models.DateField(null=True, blank=True)
 
     frequencia = models.CharField(
         max_length=10,
         choices=Frequencia.choices
     )
 
+    objetivo = models.TextField(blank=True)
+
     ativo = models.BooleanField(default=True)
+
+class Atividade(models.Model):
+    consulta = models.ForeignKey(
+        Consulta,
+        on_delete=models.CASCADE,
+        db_column='id_consulta',
+        related_name='atividades',
+    )
+    atividade = models.TextField()
+
+    class Meta:
+        db_table = 'atividade'
+
+class ObservacaoConsulta(models.Model):
+
+    class Tipo(models.TextChoices):
+        PROBLEMA = 'PROBLEMA', 'Problema relatado'
+        EVOLUCAO = 'EVOLUCAO', 'Evolução'
+        OUTRO = 'OUTRO', 'Outro'
+
+    consulta = models.ForeignKey(
+        Consulta,
+        on_delete=models.PROTECT,
+        db_column='id_consulta',
+        related_name='observacoes'
+    )
+
+    tipo = models.CharField(
+        max_length=10,
+        choices=Tipo.choices,
+        default=Tipo.OUTRO
+    )
+
+    observacao = models.TextField()
+
+    data_registro = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'observacao_consulta'
+
+class ObjetivoTerapeutico(models.Model):
+
+    class Status(models.TextChoices):
+        PENDENTE = 'PENDENTE', 'Pendente'
+        ANDAMENTO = 'ANDAMENTO', 'Em andamento'
+        CONCLUIDO = 'CONCLUIDO', 'Concluído'
+
+    tratamento = models.ForeignKey(
+        Tratamento,
+        on_delete=models.PROTECT,
+        related_name='objetivos'
+    )
+
+    descricao = models.TextField()
+
+    status = models.CharField(
+        max_length=15,
+        choices=Status.choices,
+        default=Status.PENDENTE
+    )
+
