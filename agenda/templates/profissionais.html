@@ -1,0 +1,10 @@
+{% extends 'base_agenda.html' %}
+{% block content %}
+<h1>Agendas dos psicólogos</h1>
+<p>Selecione o profissional e escolha um horário livre para sua consulta.</p>
+<ul>
+    {% for profissional in profissionais %}
+    <li><a href="{% url 'cadastroConsulta' profissional.pk %}">{{ profissional.nome }} — {{ profissional.crp }}</a> · <a href="{% url 'agendaProfissional' profissional.pk %}">Ver agenda</a></li>
+    {% empty %}<li>Nenhum profissional cadastrado.</li>{% endfor %}
+</ul>
+{% endblock %}
