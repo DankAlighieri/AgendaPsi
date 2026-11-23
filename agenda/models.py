@@ -8,7 +8,7 @@ class Profissional(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='profissional',
-        null=True,  # temporário, para a migração rodar com dados existentes
+        null=True,  # temporário, para a migração rodar com dados mocados existentes 
     )
     nome = models.CharField(max_length=150)
     email = models.EmailField(unique=True)
