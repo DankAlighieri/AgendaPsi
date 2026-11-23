@@ -1,8 +1,15 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.conf import settings
 
 class Profissional(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profissional',
+        null=True,  # temporário, para a migração rodar com dados existentes
+    )
     nome = models.CharField(max_length=150)
     email = models.EmailField(unique=True)
     telefone = models.CharField(max_length=20)
@@ -20,7 +27,7 @@ class Paciente(models.Model):
     )
 
     data_nascimento = models.DateField(null=True, blank=True)
-    cpf = models.CharField(max_length=14, blank=True)
+    cpf = models.CharField(max_length=14, blank=False)
     nome = models.CharField(max_length=150)
     telefone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
@@ -125,8 +132,8 @@ class Tratamento(models.Model):
     paciente = models.ForeignKey(
         Paciente,
         on_delete=models.PROTECT,
-        null=True,
-        blank=True,
+        null = True, # temporario, mudar quando mudar pra postgres
+        blank = True,
         related_name='tratamentos'
     )
 
@@ -134,13 +141,16 @@ class Tratamento(models.Model):
     data_fim_prevista = models.DateField(null=True, blank=True)
 
     frequencia = models.CharField(
-        max_length=10,
+        max_length=12,
         choices=Frequencia.choices
     )
 
     objetivo = models.TextField(blank=True)
 
     ativo = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f'Tratamento de {self.paciente} desde {self.data_inicio:%d/%m/%Y}'
 
 class Atividade(models.Model):
     consulta = models.ForeignKey(
@@ -201,4 +211,6 @@ class ObjetivoTerapeutico(models.Model):
         choices=Status.choices,
         default=Status.PENDENTE
     )
+    def __str__(self):
+        return f'{self.descricao[:50]} ({self.get_status_display()})'
 
