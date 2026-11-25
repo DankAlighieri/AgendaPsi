@@ -14,7 +14,6 @@ class Profissional(models.Model):
     email = models.EmailField(unique=True)
     telefone = models.CharField(max_length=20)
     crp = models.CharField(max_length=20, unique=True)
-    senhaHash = models.CharField(max_length=40, unique=False)
 
     def __str__(self):
         return self.nome
