@@ -126,3 +126,14 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Sessão
+SESSION_COOKIE_AGE = 60 * 30            # 30 min max de sessao
+SESSION_SAVE_EVERY_REQUEST = True       
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True  
+SESSION_COOKIE_SECURE = not DEBUG       
+CSRF_COOKIE_SECURE = not DEBUG
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "index"

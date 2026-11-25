@@ -2,6 +2,7 @@ from datetime import datetime, time, timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+
 from django.utils import timezone
 
 from .models import Agenda, Consulta
@@ -9,6 +10,8 @@ from .models import Agenda, Consulta
 
 HORAS_ATENDIMENTO = (8, 9, 10, 11, 14, 15, 16, 17)
 DIAS_DISPONIVEIS = 30
+
+
 
 
 def horario_de_atendimento(data_hora):
