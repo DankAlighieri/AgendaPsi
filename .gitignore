@@ -5,3 +5,6 @@ __pycache__/
 # Dados locais e segredos: nunca versionar
 db.sqlite3
 credentials.txt
+
+# Ambiente local
+venv/
