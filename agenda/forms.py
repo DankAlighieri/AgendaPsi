@@ -1,10 +1,12 @@
+import uuid
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction, IntegrityError
 from django.db.models import Exists, OuterRef
+from django.utils import timezone
 from .models import Agenda, Consulta, Paciente, Profissional
-from .services import horarios_padrao
+from .services import MAX_SEMANAS_LOTE, horario_de_atendimento, horarios_padrao
 
 # class ProfissionalForm(forms.Form):
 #         nome = forms.CharField(
@@ -193,9 +195,70 @@ class ConsultaForm(forms.Form):
         ocupadas = Consulta.objects.filter(
             paciente__profissional=profissional, data_hora=OuterRef('data_hora')
         ).exclude(status=Consulta.Status.CANCELADA)
-        self.fields['agenda'].queryset = horarios_padrao(profissional).annotate(
+        horarios_padrao(profissional)
+
+        self.fields['agenda'].queryset = Agenda.objects.filter(
+            profissional=profissional,
+            data_hora__gt=timezone.now(),
+        ).annotate(
             reservado=Exists(ocupadas)
-        ).filter(reservado=False).select_related('profissional')
+        ).filter(
+            reservado=False
+        ).select_related('profissional')
         self.fields['agenda'].error_messages['invalid_choice'] = (
             'Este horário não está disponível. Escolha outro horário da lista.'
         )
+
+    def clean_agenda(self):
+        agenda = self.cleaned_data['agenda']
+        if not horario_de_atendimento(agenda.data_hora):
+            raise forms.ValidationError(
+                'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
+            )
+        return agenda
+
+
+class HorarioIndividualForm(forms.Form):
+    data = forms.DateField(
+        label='Data',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    hora = forms.TimeField(
+        label='Horário',
+        input_formats=['%H:%M'],
+        widget=forms.TimeInput(attrs={'type': 'time'}, format='%H:%M'),
+    )
+
+
+class HorariosLoteForm(forms.Form):
+    DIAS_DA_SEMANA = (
+        ('0', 'Segunda-feira'),
+        ('1', 'Terça-feira'),
+        ('2', 'Quarta-feira'),
+        ('3', 'Quinta-feira'),
+        ('4', 'Sexta-feira'),
+        ('5', 'Sábado'),
+        ('6', 'Domingo'),
+    )
+
+    data_inicio = forms.DateField(
+        label='A partir de',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    dia_semana = forms.ChoiceField(
+        label='Dia da semana',
+        choices=DIAS_DA_SEMANA,
+    )
+    hora = forms.TimeField(
+        label='Horário',
+        input_formats=['%H:%M'],
+        widget=forms.TimeInput(attrs={'type': 'time'}, format='%H:%M'),
+    )
+    semanas = forms.IntegerField(
+        label='Quantidade de semanas',
+        min_value=1,
+        max_value=MAX_SEMANAS_LOTE,
+    )
+    chave_idempotencia = forms.UUIDField(
+        widget=forms.HiddenInput,
+    )

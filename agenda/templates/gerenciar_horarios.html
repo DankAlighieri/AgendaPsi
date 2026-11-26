@@ -1,0 +1,41 @@
+{% extends 'base_agenda.html' %}
+{% block title %}Gerenciar horários{% endblock %}
+{% block content %}
+<h1>Gerenciar horários da agenda</h1>
+
+<h2>Horário individual</h2>
+<form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="tipo" value="individual">
+    {{ form_individual.as_p }}
+    <button type="submit">Cadastrar horário</button>
+</form>
+
+<h2>Lote semanal</h2>
+<form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="tipo" value="lote">
+    {{ form_lote.as_p }}
+    <button type="submit">Cadastrar lote</button>
+</form>
+
+<h2>Horários futuros</h2>
+<table>
+    <thead>
+        <tr><th>Data</th><th>Horário</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+        {% for horario in horarios %}
+        <tr>
+            <td>{{ horario.data_hora|date:'d/m/Y' }}</td>
+            <td>{{ horario.data_hora|date:'H:i' }}</td>
+            <td>
+                {% if horario.reservado %}Ocupado{% else %}Livre{% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3">Nenhum horário futuro cadastrado.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

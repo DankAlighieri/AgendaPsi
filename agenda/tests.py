@@ -1,12 +1,22 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from .forms import ConsultaForm, HorariosLoteForm
+from .models import Agenda, Consulta, Paciente, Profissional
+from .services import (
+    MAX_SEMANAS_LOTE,
+    agendar_consulta,
+    criar_horario_individual,
+    criar_horarios_lote,
+    horarios_padrao,
+)
 from .models import Profissional, Paciente
 from .forms import ConsultaForm,PacienteFormCadastro
 from .models import Agenda, Consulta, Paciente, Profissional
@@ -206,12 +216,19 @@ class AgendamentoTests(TestCase):
         ))
         relogio.start()
         self.addCleanup(relogio.stop)
+        self.user = get_user_model().objects.create_user(
+            username='ana'
+        )
         self.profissional = Profissional.objects.create(
-            nome='Ana', email='ana@example.com', telefone='111', crp='123'
+            user=self.user, nome='Ana', email='ana@example.com', telefone='111', crp='123'
+        )
+        outro_user = get_user_model().objects.create_user(
+            username='bruno'
         )
         self.outro = Profissional.objects.create(
-            nome='Bruno', email='bruno@example.com', telefone='222', crp='456'
+            user=outro_user, nome='Bruno', email='bruno@example.com', telefone='222', crp='456'
         )
+        self.client.force_login(self.user)
         self.paciente = Paciente.objects.create(
             profissional=self.profissional, nome='Cliente', telefone='333'
         )
@@ -224,7 +241,7 @@ class AgendamentoTests(TestCase):
                 hour=8, minute=0, second=0, microsecond=0
             ),
         )
-        self.url = reverse('cadastroConsulta', args=[self.profissional.pk])
+        self.url = reverse('cadastroConsulta')
 
     def reservar(self):
         return agendar_consulta(
@@ -252,7 +269,7 @@ class AgendamentoTests(TestCase):
         response = self.client.post(self.url, {
             'paciente': self.paciente.pk, 'agenda': self.horario.pk,
         })
-        self.assertRedirects(response, reverse('agendaProfissional', args=[self.profissional.pk]))
+        self.assertRedirects(response, reverse('agendaProfissional'))
         consulta = Consulta.objects.get()
         self.assertEqual(consulta.agenda, self.horario)
         self.assertEqual(consulta.data_hora, self.horario.data_hora)
@@ -260,7 +277,7 @@ class AgendamentoTests(TestCase):
         self.assertTrue(self.horario.ocupado)
         form = ConsultaForm(profissional=self.profissional)
         self.assertNotIn(self.horario, form.fields['agenda'].queryset)
-        self.assertContains(self.client.get(reverse('agendaProfissional', args=[self.profissional.pk])), 'Ocupado')
+        self.assertContains(self.client.get(reverse('agendaProfissional')), 'Ocupado')
 
     def test_post_repetido_nao_duplica_consulta(self):
         self.reservar()
@@ -349,11 +366,12 @@ class AgendamentoTests(TestCase):
             Agenda.objects.create(profissional=self.profissional, data_hora=self.horario.data_hora)
 
     def test_horarios_sao_gerados_sem_cadastro_manual_e_sem_duplicar(self):
-        response = self.client.get(reverse('agendaProfissional', args=[self.outro.pk]))
+        self.client.force_login(self.outro.user)
+        response = self.client.get(reverse('agendaProfissional'))
         self.assertEqual(response.status_code, 200)
         quantidade = self.outro.agenda.count()
         self.assertGreater(quantidade, 0)
-        self.client.get(reverse('agendaProfissional', args=[self.outro.pk]))
+        self.client.get(reverse('agendaProfissional'))
         self.assertEqual(self.outro.agenda.count(), quantidade)
         self.assertNotContains(response, 'Adicionar horário')
 
@@ -388,7 +406,49 @@ class AgendamentoTests(TestCase):
                 with self.assertRaises(ValidationError):
                     agendar_consulta(profissional=self.profissional, paciente=self.paciente, horario=horario)
 
-    def test_paginas_e_profissional_inexistente(self):
+    def test_paginas_do_profissional_autenticado(self):
         self.assertContains(self.client.get(reverse('index')), 'Ana')
         self.assertContains(self.client.get(self.url), 'Cadastrar consulta')
-        self.assertEqual(self.client.get(reverse('agendaProfissional', args=[99999])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('agendaProfissional')).status_code, 200)
+
+    def test_formulario_limita_semanas_do_lote(self):
+        dados = {
+            'data_inicio': '2026-10-27',
+            'dia_semana': '1',
+            'hora': '08:00',
+            'semanas': MAX_SEMANAS_LOTE + 1,
+            'chave_idempotencia': '9c43d2c8-fcb8-4ed1-af6b-4495e1d239ca',
+        }
+        form = HorariosLoteForm(data=dados)
+        self.assertFalse(form.is_valid())
+        self.assertIn('semanas', form.errors)
+
+    def test_servico_rejeita_lote_com_semanas_acima_do_limite(self):
+        with self.assertRaises(ValidationError):
+            criar_horarios_lote(
+                profissional=self.profissional,
+                data_inicio=timezone.localdate(),
+                dia_semana=0,
+                hora=datetime.min.time(),
+                semanas=MAX_SEMANAS_LOTE + 1,
+                chave_idempotencia='9c43d2c8-fcb8-4ed1-af6b-4495e1d239ca',
+            )
+
+    def test_criacao_individual_rejeita_horario_fora_do_expediente(self):
+        with self.assertRaises(ValidationError):
+            criar_horario_individual(
+                profissional=self.profissional,
+                data=timezone.localdate() + timedelta(days=1),
+                hora=datetime.strptime('12:00', '%H:%M').time(),
+            )
+
+    def test_criacao_em_lote_rejeita_horario_fora_do_expediente(self):
+        with self.assertRaises(ValidationError):
+            criar_horarios_lote(
+                profissional=self.profissional,
+                data_inicio=timezone.localdate() + timedelta(days=1),
+                dia_semana=(timezone.localdate() + timedelta(days=1)).weekday(),
+                hora=datetime.strptime('12:00', '%H:%M').time(),
+                semanas=1,
+                chave_idempotencia='9c43d2c8-fcb8-4ed1-af6b-4495e1d239cb',
+            )
