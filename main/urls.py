@@ -25,4 +25,5 @@ urlpatterns = [
     path('', views.index, name='index'),
     path('cadastroProfissional/', views.cadastroProfissional, name = "cadastroProfissional"),
     path('login/', views.loginProfissional, name="login"),
+    path("pacientes/novo/", views.cadastroPaciente, name="cadastroPaciente"),
 ]

@@ -7,10 +7,162 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import ConsultaForm
+from .models import Profissional, Paciente
+from .forms import ConsultaForm,PacienteFormCadastro
 from .models import Agenda, Consulta, Paciente, Profissional
 from .services import agendar_consulta, horarios_padrao
+from agenda.models import Paciente
+from agenda.views import cadastroPaciente
 
+from django.contrib.auth import get_user_model
+
+
+
+class CadastroPacienteViewTest(TestCase):
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.user = User.objects.create_user(#forcando a criação de um usuário para o teste
+            username="teste",
+            password="123456"
+        )
+
+        self.profissional = Profissional.objects.create(
+            user=self.user,
+            nome="Profissional Teste",
+            email="profissional@email.com",
+            telefone="87999999999",
+            crp="123456"
+        )
+
+        self.client.force_login(self.user)#forcando o login do usuário  
+
+    def test_acessar_pagina_cadastro(self):
+        response = self.client.get(
+            reverse("cadastroPaciente")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "cadastro.html")
+
+    def test_acesso_sem_login_redireciona_para_login(self):
+        self.client.logout()
+
+        response = self.client.get(reverse("cadastroPaciente"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('cadastroPaciente')}",
+        )
+
+    def test_cadastrar_paciente_com_dados_validos(self):
+        dados = {
+            "nome": "Paciente Teste",
+            "cpf": "52998224725",
+            "telefone": "87988888888",
+            "email": "paciente@email.com",
+            "data_nascimento": "2000-05-10"
+        }
+
+        response = self.client.post(
+            reverse("cadastroPaciente"),
+            dados
+        )
+
+        self.assertRedirects(response, reverse("cadastroPaciente"))
+
+        paciente = Paciente.objects.get(
+            cpf="52998224725"
+        )
+
+        self.assertEqual(paciente.nome, "Paciente Teste")
+        self.assertEqual(
+            paciente.profissional,
+            self.profissional
+        )
+
+    def test_nao_cadastrar_paciente_com_dados_invalidos(self):
+        dados = {
+            "nome": "",
+            "cpf": "52998224725",
+            "telefone": "87988888888",
+            "email": "paciente@email.com",
+            "data_nascimento": "2000-05-10"
+        }
+
+        response = self.client.post(
+            reverse("cadastroPaciente"),
+            dados
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Paciente.objects.count(), 0)
+        self.assertIn("nome", response.context["form"].errors)
+
+    def test_campos_invalidos_exibem_erros_especificos(self):
+        dados = {
+            "nome": "Paciente Teste",
+            "cpf": "52998224725",
+            "telefone": "87988888888",
+            "email": "email-invalido",
+            "data_nascimento": "data-invalida",
+        }
+
+        response = self.client.post(reverse("cadastroPaciente"), dados)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("email", response.context["form"].errors)
+        self.assertIn("data_nascimento", response.context["form"].errors)
+        self.assertEqual(Paciente.objects.count(), 0)
+
+    def test_cpf_com_digitos_verificadores_invalidos_nao_cadastra(self):
+        dados = {
+            "nome": "Paciente Teste",
+            "cpf": "529.982.247-24",
+            "telefone": "87988888888",
+            "email": "paciente@email.com",
+            "data_nascimento": "2000-05-10",
+        }
+
+        response = self.client.post(reverse("cadastroPaciente"), dados)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cpf", response.context["form"].errors)
+        self.assertEqual(Paciente.objects.count(), 0)
+
+    def test_valid_form(self):
+        dados = {
+            "nome": "João",
+            "cpf": "529.982.247-25",
+            "telefone": "(87)9 9999-9999",
+            "email": "joao@email.com",
+            "data_nascimento": "2000-05-10"
+        }
+
+        form = PacienteFormCadastro(data=dados)
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["cpf"], "52998224725")
+
+    def test_cpf_com_digitos_repetidos_e_invalido(self):
+        dados = {
+            "nome": "João",
+            "cpf": "111.111.111-11",
+            "telefone": "(87)9 9999-9999",
+            "email": "joao@email.com",
+            "data_nascimento": "2000-05-10",
+        }
+
+        form = PacienteFormCadastro(data=dados)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("cpf", form.errors)
+
+    
+            
+
+    
+    
 
 class AgendamentoTests(TestCase):
     def setUp(self):
