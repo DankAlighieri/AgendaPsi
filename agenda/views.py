@@ -86,7 +86,7 @@ def cadastroPaciente(req):
 
     return render(req, "cadastro.html", {
             "form": form,
-            "titulo": "Cadastro de paciente.",
+            "titulo": "Cadastro de paciente",
             "subtitulo": "Preencha os dados do paciente.",
             "link_url": reverse("index"),
             "link_texto": "Voltar à agenda",
