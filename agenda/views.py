@@ -1,7 +1,7 @@
 from uuid import uuid4
 from django.http import HttpResponseBadRequest
 from django.utils import timezone
-from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro
+from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro, PacienteFormCadastro
 from .models import Agenda, Consulta, Profissional
 from .services import agendar_consulta, criar_horario_individual, criar_horarios_lote, horarios_padrao
 from .decorators import profissional_required

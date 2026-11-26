@@ -51,6 +51,7 @@ class PacienteFormCadastro(forms.ModelForm):
 
     def clean_cpf(self):
         cpf = self.cleaned_data["cpf"].strip().replace(".", "").replace("-", "").replace(" ", "")
+        ## TODO: Fazer esta mesma validação para o CRP
         if (
             len(cpf) != 11
             or not cpf.isascii()
