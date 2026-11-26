@@ -6,7 +6,7 @@ from django.db import transaction, IntegrityError
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from .models import Agenda, Consulta, Paciente, Profissional
-from .services import horarios_padrao
+from .services import MAX_SEMANAS_LOTE, horario_de_atendimento, horarios_padrao
 
 # class ProfissionalForm(forms.Form):
 #         nome = forms.CharField(
@@ -131,6 +131,15 @@ class ConsultaForm(forms.Form):
             'Este horário não está disponível. Escolha outro horário da lista.'
         )
 
+    def clean_agenda(self):
+        agenda = self.cleaned_data['agenda']
+        if not horario_de_atendimento(agenda.data_hora):
+            raise forms.ValidationError(
+                'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
+            )
+        return agenda
+
+
 class HorarioIndividualForm(forms.Form):
     data = forms.DateField(
         label='Data',
@@ -170,6 +179,7 @@ class HorariosLoteForm(forms.Form):
     semanas = forms.IntegerField(
         label='Quantidade de semanas',
         min_value=1,
+        max_value=MAX_SEMANAS_LOTE,
     )
     chave_idempotencia = forms.UUIDField(
         widget=forms.HiddenInput,

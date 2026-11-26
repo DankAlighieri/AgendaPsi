@@ -10,6 +10,7 @@ from .models import Agenda, Consulta, LoteAgenda
 
 HORAS_ATENDIMENTO = (8, 9, 10, 11, 14, 15, 16, 17)
 DIAS_DISPONIVEIS = 30
+MAX_SEMANAS_LOTE = 52
 
 
 
@@ -105,6 +106,10 @@ def criar_horario_individual(*, profissional, data, hora):
 
     if data_hora <= timezone.now():
         raise ValidationError('Selecione uma data e horário futuros.')
+    if not horario_de_atendimento(data_hora):
+        raise ValidationError(
+            'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
+        )
 
     try:
         with transaction.atomic():
@@ -143,6 +148,15 @@ def criar_horarios_lote(
     semanas,
     chave_idempotencia,
 ):
+    if (
+        not isinstance(semanas, int)
+        or isinstance(semanas, bool)
+        or not 1 <= semanas <= MAX_SEMANAS_LOTE
+    ):
+        raise ValidationError(
+            f'A quantidade de semanas deve estar entre 1 e {MAX_SEMANAS_LOTE}.'
+        )
+
     primeiro_dia = data_inicio + timedelta(
         days=(dia_semana - data_inicio.weekday()) % 7
     )
@@ -154,6 +168,11 @@ def criar_horarios_lote(
         )
         for semana in range(semanas)
     ]
+
+    if any(not horario_de_atendimento(data_hora) for data_hora in horarios):
+        raise ValidationError(
+            'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
+        )
 
     if any(data_hora <= timezone.now() for data_hora in horarios):
         raise ValidationError('Todos os horários do lote devem ser futuros.')
