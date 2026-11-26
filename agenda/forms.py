@@ -95,10 +95,7 @@ class PacienteFormCadastro(forms.ModelForm):
         return self.cleaned_data["telefone"].strip().replace("(", "").replace(")", "").replace("-", "").replace(" ", "") 
     
     def clean_email(self):
-        email = self.cleaned_data["email"].strip().lower()
-        if email and Paciente.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError("Já existe um paciente com este e-mail.")
-        return email
+        return self.cleaned_data["email"].strip().lower()
     
     def clean_data_nascimento(self):
         data = self.cleaned_data.get("data_nascimento")

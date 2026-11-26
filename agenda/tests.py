@@ -82,6 +82,41 @@ class CadastroPacienteViewTest(TestCase):
             self.profissional
         )
 
+    def test_outro_profissional_pode_cadastrar_paciente_com_email_existente(self):
+        Paciente.objects.create(
+            profissional=self.profissional,
+            data_nascimento="2000-05-10",
+            cpf="52998224725",
+            nome="Paciente Existente",
+            telefone="87988888888",
+            email="paciente@email.com",
+        )
+        User = get_user_model()
+        outro_user = User.objects.create_user(username="outro")
+        outro_profissional = Profissional.objects.create(
+            user=outro_user,
+            nome="Outro Profissional",
+            email="outro-profissional@email.com",
+            telefone="87999999998",
+            crp="654321",
+        )
+        self.client.force_login(outro_user)
+
+        response = self.client.post(
+            reverse("cadastroPaciente"),
+            {
+                "nome": "Outro Paciente",
+                "cpf": "11144477735",
+                "telefone": "87988888887",
+                "email": "paciente@email.com",
+                "data_nascimento": "2000-05-10",
+            },
+        )
+
+        self.assertRedirects(response, reverse("cadastroPaciente"))
+        paciente = Paciente.objects.get(cpf="11144477735")
+        self.assertEqual(paciente.profissional, outro_profissional)
+
     def test_nao_cadastrar_paciente_com_dados_invalidos(self):
         dados = {
             "nome": "",
