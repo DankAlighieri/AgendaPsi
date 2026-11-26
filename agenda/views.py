@@ -1,6 +1,9 @@
-from .forms import ConsultaForm, ProfissionalFormCadastro, LoginForm
-from .models import Consulta, Profissional
-from .services import agendar_consulta, horarios_padrao
+from uuid import uuid4
+from django.http import HttpResponseBadRequest
+from django.utils import timezone
+from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro
+from .models import Agenda, Consulta, Profissional
+from .services import agendar_consulta, criar_horario_individual, criar_horarios_lote, horarios_padrao
 from .decorators import profissional_required
 from django.core.exceptions import ValidationError
 from django.db.models import Exists, OuterRef
@@ -91,5 +94,86 @@ def cadastro_consulta(req):
             form.add_error(None, exc)
         else:
             messages.success(req, 'Consulta agendada com sucesso! O horário está ocupado.')
-            return redirect('agendaProfissional', profissional_id=profissional.pk)
+            return redirect('agendaProfissional')
     return render(req, 'consulta.html', {'profissional': profissional, 'form': form})
+
+@profissional_required
+def gerenciar_horarios(req):
+    profissional = req.profissional
+
+    form_individual = HorarioIndividualForm()
+    form_lote = HorariosLoteForm(
+        initial={'chave_idempotencia': uuid4()}
+    )
+
+    if req.method == 'POST':
+        tipo = req.POST.get('tipo')
+
+        if tipo == 'individual':
+            form_individual = HorarioIndividualForm(req.POST)
+
+            if form_individual.is_valid():
+                try:
+                    criar_horario_individual(
+                        profissional=profissional,
+                        data=form_individual.cleaned_data['data'],
+                        hora=form_individual.cleaned_data['hora'],
+                    )
+                except ValidationError as exc:
+                    form_individual.add_error(None, exc)
+                else:
+                    messages.success(req, 'Horário cadastrado.')
+                    return redirect('gerenciarHorarios')
+
+        elif tipo == 'lote':
+            form_lote = HorariosLoteForm(req.POST)
+
+            if form_lote.is_valid():
+                try:
+                    quantidade = criar_horarios_lote(
+                        profissional=profissional,
+                        data_inicio=form_lote.cleaned_data['data_inicio'],
+                        dia_semana=int(form_lote.cleaned_data['dia_semana']),
+                        hora=form_lote.cleaned_data['hora'],
+                        semanas=form_lote.cleaned_data['semanas'],
+                        chave_idempotencia=form_lote.cleaned_data[
+                            'chave_idempotencia'
+                        ],
+                    )
+                except ValidationError as exc:
+                    form_lote.add_error(None, exc)
+                else:
+                    if quantidade:
+                        messages.success(
+                            req,
+                            f'{quantidade} horários cadastrados.',
+                        )
+                    else:
+                        messages.info(
+                            req,
+                            'Este lote já havia sido processado.',
+                        )
+                    return redirect('gerenciarHorarios')
+
+        else:
+            return HttpResponseBadRequest('Tipo de cadastro inválido.')
+
+    horarios_padrao(profissional)  # Mantém a criação automática dos horários padrão.
+
+    consultas_ativas = Consulta.objects.filter(
+        paciente__profissional=profissional,
+        data_hora=OuterRef('data_hora'),
+    ).exclude(status=Consulta.Status.CANCELADA)
+
+    horarios = Agenda.objects.filter(
+        profissional=profissional,
+        data_hora__gt=timezone.now(),
+    ).annotate(
+        reservado=Exists(consultas_ativas)
+    ).order_by('data_hora')
+
+    return render(req, 'gerenciar_horarios.html', {
+        'form_individual': form_individual,
+        'form_lote': form_lote,
+        'horarios': horarios,
+    })

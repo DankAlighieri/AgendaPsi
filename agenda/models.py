@@ -214,3 +214,21 @@ class ObjetivoTerapeutico(models.Model):
     def __str__(self):
         return f'{self.descricao[:50]} ({self.get_status_display()})'
 
+class LoteAgenda(models.Model):
+    profissional = models.ForeignKey(
+        Profissional,
+        on_delete=models.CASCADE,
+        related_name='lotes_agenda',
+    )
+    chave_idempotencia = models.UUIDField()
+    payload_hash = models.CharField(max_length=64)
+    criado_em = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['profissional', 'chave_idempotencia'],
+                name='lote_agenda_chave_unica',
+            ),
+        ]
+
