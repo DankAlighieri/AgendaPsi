@@ -8,4 +8,3 @@ credentials.txt
 
 # Ambiente local
 venv/
-.vagrant/
