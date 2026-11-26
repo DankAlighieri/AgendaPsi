@@ -1,4 +1,4 @@
-from .forms import ConsultaForm, ProfissionalFormCadastro, LoginForm
+from .forms import ConsultaForm, ProfissionalFormCadastro, LoginForm,PacienteFormCadastro
 from .models import Consulta, Profissional
 from .services import agendar_consulta, horarios_padrao
 from .decorators import profissional_required
@@ -50,6 +50,21 @@ def loginProfissional(req):
     return render(req, "login.html", {"form":form})
 
 ## TODO: Metodo de logout
+@profissional_required
+def cadastroPaciente(req):
+    form = PacienteFormCadastro(
+        req.POST if req.method == "POST" else None
+    )
+
+    if req.method == "POST" and form.is_valid():
+            paciente = form.save(commit=False)
+            paciente.profissional = req.profissional
+            paciente.save()
+
+            messages.success(req, "Paciente cadastrado")
+            return redirect("cadastroPaciente")
+
+    return render(req, "cadastro.html", {"form": form})
 
 @profissional_required
 def agenda_profissional(req, profissional_id):

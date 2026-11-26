@@ -27,7 +27,7 @@ class Paciente(models.Model):
     )
 
     data_nascimento = models.DateField(null=True, blank=True)
-    cpf = models.CharField(max_length=14, blank=False)
+    cpf = models.CharField(max_length=14, blank=False)#verificar se o usuario poderá poderá se registrar em dois psicologos, e se essa verificacao é somente no db do usuario/profissional que está acessando
     nome = models.CharField(max_length=150)
     telefone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)

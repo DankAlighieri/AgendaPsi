@@ -26,6 +26,84 @@ from .services import horarios_padrao
 
 ###
 # Reutilizando o modelo de dados ja definido
+
+class PacienteFormCadastro(forms.ModelForm):
+
+    data_nascimento = forms.DateField(
+        label="Data de nascimento",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    cpf = forms.CharField(
+        label="CPF",
+        max_length=14,
+        widget=forms.TextInput(attrs={
+            "placeholder": "000.000.000-00",
+            "inputmode": "numeric",
+            "autocomplete": "off",
+        }),
+    )
+    nome = forms.CharField(
+        label="Nome",
+        max_length=150,
+    )
+    telefone = forms.CharField(
+        label="Telefone",  
+        max_length=20,
+        widget=forms.TextInput(attrs={
+            "placeholder": "(00) 00000-0000",
+            "inputmode": "numeric",
+            "autocomplete": "off",
+        }),
+    )
+    email = forms.EmailField(
+        label="Email",
+        max_length=254,
+        required=True,
+    )
+
+    class Meta:
+        model = Paciente
+        fields = ["data_nascimento","cpf","nome","telefone","email"]
+
+    def clean_cpf(self):
+        cpf = self.cleaned_data["cpf"].strip().replace(".", "").replace("-", "").replace(" ", "")
+        if (
+            len(cpf) != 11
+            or not cpf.isascii()
+            or not cpf.isdigit()
+            or cpf == cpf[0] * 11
+        ):
+            raise forms.ValidationError("Informe um CPF válido.")
+
+        digitos = [int(digito) for digito in cpf]
+        soma = sum(digito * peso for digito, peso in zip(digitos[:9], range(10, 1, -1)))
+        primeiro = (soma * 10) % 11
+        if primeiro == 10:
+            primeiro = 0
+
+        soma = sum(digito * peso for digito, peso in zip(digitos[:10], range(11, 1, -1)))
+        segundo = (soma * 10) % 11
+        if segundo == 10:
+            segundo = 0
+
+        if digitos[9:] != [primeiro, segundo]:
+            raise forms.ValidationError("Informe um CPF válido.")
+
+        return cpf
+    
+    def clean_telefone(self):
+        return self.cleaned_data["telefone"].strip().replace("(", "").replace(")", "").replace("-", "").replace(" ", "") 
+    
+    def clean_email(self):
+        return self.cleaned_data["email"].strip().lower()
+    
+    def clean_data_nascimento(self):
+        data = self.cleaned_data.get("data_nascimento")
+        if not data:
+            raise forms.ValidationError("Adicione uma data de nascimento")
+        return data
+    #chamar o form.is_valid() na view
+
 class ProfissionalFormCadastro(forms.ModelForm):
     senha = forms.CharField(
         label="Senha",
