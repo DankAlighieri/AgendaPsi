@@ -230,10 +230,12 @@ class AgendamentoTests(TestCase):
         )
         self.client.force_login(self.user)
         self.paciente = Paciente.objects.create(
-            profissional=self.profissional, nome='Cliente', telefone='333'
+            profissional=self.profissional, nome='Cliente', telefone='333',
+            email='cliente@example.com',
         )
         self.outro_paciente = Paciente.objects.create(
-            profissional=self.outro, nome='Outro cliente', telefone='444'
+            profissional=self.outro, nome='Outro cliente', telefone='444',
+            email='outro-cliente@example.com',
         )
         self.horario = Agenda.objects.create(
             profissional=self.profissional,

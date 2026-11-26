@@ -7,7 +7,6 @@ from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from .models import Agenda, Consulta, Paciente, Profissional
 from .services import MAX_SEMANAS_LOTE, horario_de_atendimento, horarios_padrao
-
 ###
 # Reutilizando o modelo de dados ja definido
 
@@ -47,6 +46,7 @@ class PacienteFormCadastro(forms.ModelForm):
 
     class Meta:
         model = Paciente
+
         fields = ["data_nascimento","cpf","nome","telefone","email"]
 
     def clean_cpf(self):
@@ -82,11 +82,6 @@ class PacienteFormCadastro(forms.ModelForm):
     def clean_email(self):
         return self.cleaned_data["email"].strip().lower()
     
-    def clean_data_nascimento(self):
-        data = self.cleaned_data.get("data_nascimento")
-        if not data:
-            raise forms.ValidationError("Adicione uma data de nascimento")
-        return data
     #chamar o form.is_valid() na view
 
 class ProfissionalFormCadastro(forms.ModelForm):

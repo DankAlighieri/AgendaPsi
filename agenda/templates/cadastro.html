@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Cadastro</title>
+    <title>{{ titulo }}</title>
 
     <style>
         * {
@@ -97,16 +97,16 @@
 
     <div class="container">
 
-        <h1>Cadastro</h1>
-        <p><a href="{% url 'index' %}">Ver agendas dos profissionais</a></p>
-        <p class="subtitle">Preencha seus dados para criar uma conta.</p>
+        <h1>{{titulo}}</h1>
+        <p><a href="{{ link_url }}">{{link_texto}}</a></p>
+        <p class="subtitle">{{subtitulo}}</p>
 
         <form method="POST">
             <!--Enviando os dados para o backend via post-->
             {% csrf_token %}
             <!--campos inputs sao renderizados diretos das definicoes em forms.py-->
             {{ form }}
-            <button type="submit">Salvar</button>
+            <button type="submit">{{texto_botao}}</button>
         </form>
 
     </div>

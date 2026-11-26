@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.urls import reverse
 
 @profissional_required
 def index(req):
@@ -41,7 +42,13 @@ def cadastroProfissional(req):
                 return redirect("login")
     else:
         form = ProfissionalFormCadastro()
-    return render(req, "cadastro.html", {"form": form})
+    return render(req, "cadastro.html", {
+        "form": form,
+        "titulo": "Cadastro do profissional",
+        "subtitulo": "Preencha seus dados.",
+        "link_url": reverse("index"),
+        "link_texto": "Voltar à agenda",
+        })
 
 def loginProfissional(req):
     if req.method == "POST":
@@ -77,7 +84,14 @@ def cadastroPaciente(req):
             messages.success(req, "Paciente cadastrado")
             return redirect("cadastroPaciente")
 
-    return render(req, "cadastro.html", {"form": form})
+    return render(req, "cadastro.html", {
+            "form": form,
+            "titulo": "Cadastro de paciente.",
+            "subtitulo": "Preencha os dados do paciente.",
+            "link_url": reverse("index"),
+            "link_texto": "Voltar à agenda",
+            "texto_botao": "Salvar",
+        })
 
 @profissional_required
 def agenda_profissional(req):
