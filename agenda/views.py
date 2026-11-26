@@ -11,9 +11,19 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 @profissional_required
 def index(req):
-    return render(req, 'profissionais.html', {
-        'profissionais': Profissional.objects.order_by('nome'),
-    })
+    profissional = req.profissional
+    consultas = Consulta.objects.filter(
+        paciente__profissional=profissional, data_hora=OuterRef('data_hora')
+    ).exclude(status=Consulta.Status.CANCELADA)
+    horarios = horarios_padrao(profissional).annotate(
+        reservado=Exists(consultas)
+    )
+    return render(req, 'agenda.html', {
+        'profissional': profissional, 'horarios': horarios,
+        'consultas': Consulta.objects.filter(
+            paciente__profissional=profissional
+        ).select_related('paciente').order_by('data_hora'),
+    }) 
 
 def cadastroProfissional(req):
     if req.method == "POST":
@@ -52,8 +62,8 @@ def loginProfissional(req):
 ## TODO: Metodo de logout
 
 @profissional_required
-def agenda_profissional(req, profissional_id):
-    profissional = get_object_or_404(Profissional, pk=profissional_id)
+def agenda_profissional(req):
+    profissional = req.profissional
     consultas = Consulta.objects.filter(
         paciente__profissional=profissional, data_hora=OuterRef('data_hora')
     ).exclude(status=Consulta.Status.CANCELADA)
@@ -68,8 +78,8 @@ def agenda_profissional(req, profissional_id):
     }) 
 
 @profissional_required
-def cadastro_consulta(req, profissional_id):
-    profissional = get_object_or_404(Profissional, pk=profissional_id)
+def cadastro_consulta(req):
+    profissional = req.profissional
     form = ConsultaForm(req.POST if req.method == 'POST' else None, profissional=profissional)
     if req.method == 'POST' and form.is_valid():
         try:
