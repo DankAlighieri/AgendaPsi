@@ -413,6 +413,21 @@ class AgendamentoTests(TestCase):
         self.assertContains(self.client.get(self.url), 'Cadastrar consulta')
         self.assertEqual(self.client.get(reverse('agendaProfissional')).status_code, 200)
 
+    def test_logout_encerra_a_sessao(self):
+        response = self.client.post(reverse('logout'))
+        self.assertRedirects(response, reverse('login'))
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_logout_por_get_nao_e_permitido(self):
+        self.assertEqual(self.client.get(reverse('logout')).status_code, 405)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_menu_exibe_botao_de_sair(self):
+        self.assertContains(
+            self.client.get(reverse('agendaProfissional')),
+            f'action="{reverse("logout")}"',
+        )
+
     def test_formulario_limita_semanas_do_lote(self):
         dados = {
             'data_inicio': '2026-10-27',

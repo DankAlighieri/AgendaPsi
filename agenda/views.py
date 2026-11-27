@@ -1,17 +1,18 @@
 from uuid import uuid4
 from django.http import HttpResponseBadRequest
 from django.utils import timezone
-from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro, PacienteFormCadastro
-from .models import Agenda, Consulta, Profissional
+from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro, PacienteFormCadastro, ProfissionalFormUpdate
+from .models import Agenda, Consulta
 from .services import agendar_consulta, criar_horario_individual, criar_horarios_lote, horarios_padrao
 from .decorators import profissional_required
 from django.core.exceptions import ValidationError
 from django.db.models import Exists, OuterRef
-from django.shortcuts import get_object_or_404, render, redirect
+from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, logout
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 @profissional_required
 def index(req):
@@ -69,7 +70,30 @@ def loginProfissional(req):
         form = LoginForm()
     return render(req, "login.html", {"form":form})
 
-## TODO: Metodo de logout
+@profissional_required
+def updatePerfilProfissional(req):
+    form = ProfissionalFormUpdate(
+        req.POST if req.method == "POST" else None,
+        instance=req.profissional,
+    )
+
+    if req.method == "POST" and form.is_valid():
+        try:
+            form.save()
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(req, "Perfil atualizado!")
+            return redirect("perfil")
+
+    return render(req, "cadastro.html", {"form": form})
+
+@require_POST
+def logoutProfissional(req):
+    logout(req)
+    messages.success(req, "Você saiu da sua conta.")
+    return redirect("login")
+
 @profissional_required
 def cadastroPaciente(req):
     form = PacienteFormCadastro(

@@ -26,7 +26,19 @@
 </head>
 <body>
 <main>
-    <nav><a href="{% url 'index' %}">Home</a><a href="{% url 'cadastroConsulta' %}">Cadastrar nova consulta</a><a href="{% url 'gerenciarHorarios' %}">Cadastrar horários na agenda</a> <a href="{%url 'cadastroPaciente'%}"> Cadastrar Novo Paciente</a></nav>
+    <nav>
+        <a href="{% url 'index' %}">Home</a>
+        <a href="{% url 'cadastroConsulta' %}">Cadastrar nova consulta</a>
+        <a href="{% url 'gerenciarHorarios' %}">Cadastrar horários na agenda</a>
+        <a href="{%url 'cadastroPaciente'%}"> Cadastrar Novo Paciente</a>
+        <a href="{%url 'updatePerfilProfissional'%}">Atualizar perfil</a>
+        {% if user.is_authenticated %}
+            <form method="POST" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit">Sair</button>
+            </form>
+        {% endif %}
+    </nav>
     {% for message in messages %}<p class="message" role="status">{{ message }}</p>{% endfor %}
     {% block content %}{% endblock %}
 </main>
