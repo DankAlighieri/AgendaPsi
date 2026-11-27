@@ -1,12 +1,10 @@
 from uuid import uuid4
 from django.http import HttpResponseBadRequest
-from django.utils import timezone
 from .forms import ConsultaForm, HorarioIndividualForm, HorariosLoteForm, LoginForm, ProfissionalFormCadastro, PacienteFormCadastro, ProfissionalFormUpdate
-from .models import Agenda, Consulta
-from .services import agendar_consulta, criar_horario_individual, criar_horarios_lote, horarios_padrao
+from .models import Consulta
+from .services import agendar_consulta, criar_horario_individual, criar_horarios_lote, horarios_futuros
 from .decorators import profissional_required
 from django.core.exceptions import ValidationError
-from django.db.models import Exists, OuterRef
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -14,21 +12,19 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-@profissional_required
-def index(req):
+def _renderizar_agenda(req):
     profissional = req.profissional
-    consultas = Consulta.objects.filter(
-        paciente__profissional=profissional, data_hora=OuterRef('data_hora')
-    ).exclude(status=Consulta.Status.CANCELADA)
-    horarios = horarios_padrao(profissional).annotate(
-        reservado=Exists(consultas)
-    )
     return render(req, 'agenda.html', {
-        'profissional': profissional, 'horarios': horarios,
+        'profissional': profissional,
+        'horarios': horarios_futuros(profissional),
         'consultas': Consulta.objects.filter(
             paciente__profissional=profissional
         ).select_related('paciente').order_by('data_hora'),
-    }) 
+    })
+
+@profissional_required
+def index(req):
+    return _renderizar_agenda(req)
 
 def cadastroProfissional(req):
     if req.method == "POST":
@@ -49,12 +45,13 @@ def cadastroProfissional(req):
         "subtitulo": "Preencha seus dados.",
         "link_url": reverse("index"),
         "link_texto": "Voltar à agenda",
+        "texto_botao": "Cadastrar",
         })
 
 def loginProfissional(req):
+    destino = req.POST.get("next") or req.GET.get("next") or ""
     if req.method == "POST":
         form = LoginForm(req.POST)
-        destino = req.POST.get("next") or req.GET.get("next") or ""
         if form.is_valid():
             username = form.cleaned_data["email"].strip().lower()
             senha = form.cleaned_data["senha"]
@@ -68,7 +65,7 @@ def loginProfissional(req):
                 form.add_error(None, "Email ou senha inválidos!")
     else:
         form = LoginForm()
-    return render(req, "login.html", {"form":form})
+    return render(req, "login.html", {"form": form, "next": destino})
 
 @profissional_required
 def updatePerfilProfissional(req):
@@ -84,9 +81,16 @@ def updatePerfilProfissional(req):
             form.add_error(None, exc)
         else:
             messages.success(req, "Perfil atualizado!")
-            return redirect("perfil")
+            return redirect("updatePerfilProfissional")
 
-    return render(req, "cadastro.html", {"form": form})
+    return render(req, "cadastro.html", {
+        "form": form,
+        "titulo": "Atualizar perfil",
+        "subtitulo": "Altere seus dados de contato.",
+        "link_url": reverse("index"),
+        "link_texto": "Voltar à agenda",
+        "texto_botao": "Salvar",
+    })
 
 @require_POST
 def logoutProfissional(req):
@@ -119,19 +123,7 @@ def cadastroPaciente(req):
 
 @profissional_required
 def agenda_profissional(req):
-    profissional = req.profissional
-    consultas = Consulta.objects.filter(
-        paciente__profissional=profissional, data_hora=OuterRef('data_hora')
-    ).exclude(status=Consulta.Status.CANCELADA)
-    horarios = horarios_padrao(profissional).annotate(
-        reservado=Exists(consultas)
-    )
-    return render(req, 'agenda.html', {
-        'profissional': profissional, 'horarios': horarios,
-        'consultas': Consulta.objects.filter(
-            paciente__profissional=profissional
-        ).select_related('paciente').order_by('data_hora'),
-    }) 
+    return _renderizar_agenda(req)
 
 @profissional_required
 def cadastro_consulta(req):
@@ -211,22 +203,8 @@ def gerenciar_horarios(req):
         else:
             return HttpResponseBadRequest('Tipo de cadastro inválido.')
 
-    horarios_padrao(profissional)  # Mantém a criação automática dos horários padrão.
-
-    consultas_ativas = Consulta.objects.filter(
-        paciente__profissional=profissional,
-        data_hora=OuterRef('data_hora'),
-    ).exclude(status=Consulta.Status.CANCELADA)
-
-    horarios = Agenda.objects.filter(
-        profissional=profissional,
-        data_hora__gt=timezone.now(),
-    ).annotate(
-        reservado=Exists(consultas_ativas)
-    ).order_by('data_hora')
-
     return render(req, 'gerenciar_horarios.html', {
         'form_individual': form_individual,
         'form_lote': form_lote,
-        'horarios': horarios,
+        'horarios': horarios_futuros(profissional),
     })

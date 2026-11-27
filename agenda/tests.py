@@ -1,8 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+from io import StringIO
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
@@ -18,7 +21,7 @@ from .services import (
     horarios_padrao,
 )
 from .models import Profissional, Paciente
-from .forms import ConsultaForm,PacienteFormCadastro
+from .forms import ConsultaForm,PacienteFormCadastro, ProfissionalFormCadastro, ProfissionalFormUpdate
 from .models import Agenda, Consulta, Paciente, Profissional
 from .services import agendar_consulta, horarios_padrao
 from agenda.models import Paciente
@@ -395,7 +398,7 @@ class AgendamentoTests(TestCase):
             hoje = [timezone.localtime(h.data_hora).hour for h in horarios if timezone.localdate(h.data_hora) == timezone.localdate()]
             self.assertEqual(hoje, [11, 14, 15, 16, 17])
 
-    def test_formulario_e_servico_rejeitam_horarios_fora_do_expediente(self):
+    def test_horario_manual_fora_da_grade_pode_ser_agendado(self):
         for data in [datetime(2026, 10, 27, 12), datetime(2026, 10, 27, 13),
                      datetime(2026, 10, 27, 18), datetime(2026, 10, 27, 8, 30),
                      datetime(2026, 10, 31, 8), datetime(2026, 11, 1, 8)]:
@@ -404,9 +407,8 @@ class AgendamentoTests(TestCase):
                 form = ConsultaForm(
                     {'paciente': self.paciente.pk, 'agenda': horario.pk}, profissional=self.profissional,
                 )
-                self.assertFalse(form.is_valid())
-                with self.assertRaises(ValidationError):
-                    agendar_consulta(profissional=self.profissional, paciente=self.paciente, horario=horario)
+                self.assertTrue(form.is_valid(), form.errors)
+                agendar_consulta(profissional=self.profissional, paciente=self.paciente, horario=horario)
 
     def test_paginas_do_profissional_autenticado(self):
         self.assertContains(self.client.get(reverse('index')), 'Ana')
@@ -451,21 +453,278 @@ class AgendamentoTests(TestCase):
                 chave_idempotencia='9c43d2c8-fcb8-4ed1-af6b-4495e1d239ca',
             )
 
-    def test_criacao_individual_rejeita_horario_fora_do_expediente(self):
-        with self.assertRaises(ValidationError):
-            criar_horario_individual(
-                profissional=self.profissional,
-                data=timezone.localdate() + timedelta(days=1),
-                hora=datetime.strptime('12:00', '%H:%M').time(),
-            )
+    def lote(self, hora=time(14), semanas=8, chave=None):
+        return criar_horarios_lote(
+            profissional=self.profissional,
+            data_inicio=timezone.localdate(),
+            dia_semana=1,
+            hora=hora,
+            semanas=semanas,
+            chave_idempotencia=chave or uuid4(),
+        )
 
-    def test_criacao_em_lote_rejeita_horario_fora_do_expediente(self):
+    def test_lote_assume_horarios_gerados_pela_grade(self):
+        horarios_padrao(self.profissional)
+        self.assertEqual(self.lote(), 8)
+        tercas = [
+            h for h in self.profissional.agenda.filter(automatico=False)
+            if timezone.localtime(h.data_hora).hour == 14
+        ]
+        self.assertEqual(len(tercas), 8)
+
+    def test_lote_com_conflito_manual_nao_cria_nem_altera_nada(self):
+        horarios_padrao(self.profissional)
+        criar_horario_individual(
+            profissional=self.profissional, data=datetime(2026, 11, 3).date(), hora=time(14),
+        )
+        antes = list(self.profissional.agenda.values_list('pk', 'automatico'))
+        with self.assertRaisesMessage(ValidationError, '03/11/2026 14:00'):
+            self.lote()
+        self.assertEqual(list(self.profissional.agenda.values_list('pk', 'automatico')), antes)
+
+    def test_lote_repetido_nao_duplica(self):
+        chave = uuid4()
+        self.assertEqual(self.lote(chave=chave), 8)
+        quantidade = self.profissional.agenda.count()
+        self.assertEqual(self.lote(chave=chave), 0)
+        self.assertEqual(self.profissional.agenda.count(), quantidade)
+
+    def test_individual_assume_horario_da_grade_e_rejeita_repeticao(self):
+        horarios_padrao(self.profissional)
+        dados = {
+            'profissional': self.profissional,
+            'data': datetime(2026, 10, 28).date(),
+            'hora': time(9),
+        }
+        quantidade = self.profissional.agenda.count()
+        self.assertFalse(criar_horario_individual(**dados).automatico)
+        self.assertEqual(self.profissional.agenda.count(), quantidade)
+        with self.assertRaisesMessage(ValidationError, 'já está cadastrado'):
+            criar_horario_individual(**dados)
+
+    def test_cadastro_aceita_qualquer_dia_e_hora_futuros(self):
+        criar_horario_individual(
+            profissional=self.profissional, data=datetime(2026, 10, 31).date(), hora=time(12, 30),
+        )
+        self.assertEqual(self.lote(hora=time(20), semanas=2), 2)
+
+    def test_horario_alem_de_trinta_dias_aparece_na_agenda_e_no_formulario(self):
+        horario = criar_horario_individual(
+            profissional=self.profissional, data=datetime(2027, 3, 2).date(), hora=time(9),
+        )
+        response = self.client.get(reverse('agendaProfissional'))
+        self.assertIn(horario, response.context['horarios'])
+        self.assertIn(horario, ConsultaForm(profissional=self.profissional).fields['agenda'].queryset)
+
+
+SENHA_TESTE = 'Zx9!kLmQ2#vT'
+
+
+def criar_profissional(apelido, crp):
+    """Cria um profissional com usuário, para testes com sessão."""
+    email = f'{apelido}@example.com'
+    user = get_user_model().objects.create_user(
+        username=email, email=email, password=SENHA_TESTE,
+    )
+    return Profissional.objects.create(
+        user=user, nome=apelido.title(), email=email, telefone='87999990000', crp=crp,
+    )
+
+
+class CadastroProfissionalTests(TestCase):
+    def dados(self, **extras):
+        return {
+            'nome': 'Carla Souza', 'email': 'carla@example.com',
+            'telefone': '87999999999', 'crp': '02/12345',
+            'senha': SENHA_TESTE, 'confirmarSenha': SENHA_TESTE, **extras,
+        }
+
+    def test_cadastro_valido_cria_usuario_e_normaliza_crp(self):
+        response = self.client.post(reverse('cadastroProfissional'), self.dados())
+        self.assertRedirects(response, reverse('login'))
+        profissional = Profissional.objects.get()
+        self.assertEqual(profissional.crp, '0212345')
+        self.assertEqual(profissional.user.username, 'carla@example.com')
+
+    def test_botao_tem_texto(self):
+        self.assertContains(self.client.get(reverse('cadastroProfissional')), '>Cadastrar</button>')
+
+    def test_crp_invalido(self):
+        for crp in ('abc', '02/abc45', '02/123', '02/1234567', '///'):
+            with self.subTest(crp=crp):
+                form = ProfissionalFormCadastro(self.dados(crp=crp))
+                self.assertFalse(form.is_valid())
+                self.assertIn('crp', form.errors)
+
+    def test_senha_diferente_fraca_ou_igual_ao_email(self):
+        casos = (
+            ({'confirmarSenha': 'outra'}, 'confirmarSenha'),
+            ({'senha': '123', 'confirmarSenha': '123'}, 'senha'),
+            ({'senha': 'carla@example.com', 'confirmarSenha': 'carla@example.com'}, 'senha'),
+        )
+        for extras, campo in casos:
+            with self.subTest(extras=extras):
+                form = ProfissionalFormCadastro(self.dados(**extras))
+                self.assertFalse(form.is_valid())
+                self.assertIn(campo, form.errors)
+
+    def test_email_e_crp_duplicados_indicam_o_campo(self):
+        criar_profissional('carla', '0212345')
+        form = ProfissionalFormCadastro(self.dados(email='CARLA@example.com', crp='02-12345'))
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+        self.assertIn('crp', form.errors)
+
+    def test_corrida_pelo_crp_indica_o_campo_sem_usuario_orfao(self):
+        form = ProfissionalFormCadastro(self.dados())
+        self.assertTrue(form.is_valid())
+        criar_profissional('outra', '0212345')
+        with self.assertRaises(ValidationError) as contexto:
+            form.save()
+        self.assertEqual(list(contexto.exception.message_dict), ['crp'])
+        self.assertFalse(get_user_model().objects.filter(username='carla@example.com').exists())
+
+
+class LoginTests(TestCase):
+    def setUp(self):
+        criar_profissional('ana', '0211111')
+        self.dados = {'email': 'ana@example.com', 'senha': SENHA_TESTE}
+
+    def test_next_vai_ao_template_e_e_respeitado(self):
+        destino = reverse('cadastroConsulta')
+        response = self.client.get(reverse('login'), {'next': destino})
+        self.assertContains(response, f'name="next" value="{destino}"')
+        response = self.client.post(reverse('login'), {**self.dados, 'next': destino})
+        self.assertRedirects(response, destino)
+
+    def test_next_externo_e_ignorado(self):
+        response = self.client.post(
+            reverse('login'), {**self.dados, 'next': 'https://externo.example/'},
+        )
+        self.assertRedirects(response, reverse('index'))
+
+    def test_credenciais_invalidas(self):
+        response = self.client.post(reverse('login'), {**self.dados, 'senha': 'errada'})
+        self.assertContains(response, 'Email ou senha inválidos!')
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+
+class PerfilTests(TestCase):
+    def setUp(self):
+        self.ana = criar_profissional('ana', '0211111')
+        self.bruno = criar_profissional('bruno', '0222222')
+        self.client.force_login(self.ana.user)
+        self.url = reverse('updatePerfilProfissional')
+
+    def test_pagina_preenchida(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'ana@example.com')
+        self.assertContains(response, '>Salvar</button>')
+
+    def test_atualiza_perfil_e_login_juntos(self):
+        response = self.client.post(self.url, {'email': 'Nova@Example.com', 'telefone': '87911112222'})
+        self.assertRedirects(response, self.url)
+        self.ana.refresh_from_db()
+        self.ana.user.refresh_from_db()
+        self.assertEqual(self.ana.email, 'nova@example.com')
+        self.assertEqual(self.ana.telefone, '87911112222')
+        self.assertEqual(self.ana.user.username, 'nova@example.com')
+        self.assertEqual(self.ana.user.email, 'nova@example.com')
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.client.logout()
+        self.assertTrue(self.client.login(username='nova@example.com', password=SENHA_TESTE))
+
+    def test_manter_o_proprio_email(self):
+        response = self.client.post(self.url, {'email': 'ana@example.com', 'telefone': '87911112222'})
+        self.assertRedirects(response, self.url)
+
+    def test_email_de_outro_profissional_e_rejeitado(self):
+        response = self.client.post(self.url, {'email': 'BRUNO@example.com', 'telefone': '1'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('email', response.context['form'].errors)
+        self.ana.refresh_from_db()
+        self.assertEqual(self.ana.email, 'ana@example.com')
+
+    def test_corrida_pelo_email_vira_erro_de_validacao(self):
+        form = ProfissionalFormUpdate(
+            {'email': 'novo@example.com', 'telefone': '1'}, instance=self.ana,
+        )
+        self.assertTrue(form.is_valid())
+        get_user_model().objects.create_user(username='novo@example.com')
         with self.assertRaises(ValidationError):
-            criar_horarios_lote(
-                profissional=self.profissional,
-                data_inicio=timezone.localdate() + timedelta(days=1),
-                dia_semana=(timezone.localdate() + timedelta(days=1)).weekday(),
-                hora=datetime.strptime('12:00', '%H:%M').time(),
-                semanas=1,
-                chave_idempotencia='9c43d2c8-fcb8-4ed1-af6b-4495e1d239cb',
-            )
+            form.save()
+        self.ana.refresh_from_db()
+        self.assertEqual(self.ana.email, 'ana@example.com')
+
+
+class IsolamentoTests(TestCase):
+    def setUp(self):
+        self.ana = criar_profissional('ana', '0211111')
+        self.bruno = criar_profissional('bruno', '0222222')
+        self.paciente_bruno = Paciente.objects.create(
+            profissional=self.bruno, nome='Paciente Sigiloso', telefone='87988887777',
+        )
+        self.horario_bruno = Agenda.objects.create(
+            profissional=self.bruno, data_hora=timezone.now() + timedelta(days=60),
+        )
+        Consulta.objects.create(
+            paciente=self.paciente_bruno, agenda=self.horario_bruno,
+            data_hora=self.horario_bruno.data_hora,
+        )
+        self.client.force_login(self.ana.user)
+
+    def test_nao_le_dados_de_outro_profissional(self):
+        for nome in ('index', 'agendaProfissional', 'cadastroConsulta',
+                     'gerenciarHorarios', 'updatePerfilProfissional'):
+            with self.subTest(nome=nome):
+                response = self.client.get(reverse(nome))
+                self.assertNotContains(response, 'Paciente Sigiloso')
+                self.assertNotContains(response, 'bruno@example.com')
+
+    def test_dono_vem_da_sessao_e_ignora_id_enviado(self):
+        self.client.post(reverse('cadastroPaciente'), {
+            'nome': 'Novo', 'telefone': '87977776666', 'profissional': self.bruno.pk,
+        })
+        self.assertEqual(Paciente.objects.get(nome='Novo').profissional, self.ana)
+        self.client.post(reverse('updatePerfilProfissional'), {
+            'email': 'ana2@example.com', 'telefone': '1', 'profissional_id': self.bruno.pk,
+        })
+        self.bruno.refresh_from_db()
+        self.assertEqual(self.bruno.email, 'bruno@example.com')
+
+
+class PacienteOpcionaisTests(TestCase):
+    def test_somente_nome_e_telefone(self):
+        profissional = criar_profissional('ana', '0211111')
+        self.client.force_login(profissional.user)
+        response = self.client.post(
+            reverse('cadastroPaciente'), {'nome': 'P', 'telefone': '(87) 99999-9999'},
+        )
+        self.assertRedirects(response, reverse('cadastroPaciente'))
+        paciente = Paciente.objects.get()
+        self.assertEqual((paciente.cpf, paciente.email, paciente.data_nascimento), ('', '', None))
+
+    def test_telefone_e_nascimento_invalidos(self):
+        for telefone in ('abc', '()-', '123'):
+            with self.subTest(telefone=telefone):
+                form = PacienteFormCadastro({'nome': 'P', 'telefone': telefone})
+                self.assertFalse(form.is_valid())
+                self.assertIn('telefone', form.errors)
+        form = PacienteFormCadastro({
+            'nome': 'P', 'telefone': '87999999999',
+            'data_nascimento': timezone.localdate() + timedelta(days=1),
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('data_nascimento', form.errors)
+
+
+class CargaDeDadosTests(TestCase):
+    def test_comandos_de_carga_podem_ser_repetidos(self):
+        call_command('popular_banco', profissionais=2, stdout=StringIO())
+        argumentos = {'profissionais': 2, 'pacientes': 5, 'consultas': 5, 'tratamentos': 3}
+        call_command('seed_fake_data', stdout=StringIO(), **argumentos)
+        call_command('seed_fake_data', clear=True, stdout=StringIO(), **argumentos)
+        self.assertEqual(Profissional.objects.count(), 2)
+        self.assertEqual(get_user_model().objects.count(), 2)
+        for profissional in Profissional.objects.all():
+            self.assertFalse(profissional.user.has_usable_password())

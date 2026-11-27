@@ -14,9 +14,9 @@ fi
 
 source "$VENV_PATH/bin/activate"
 python -m pip install --upgrade pip
-python -m pip install "Django>=6.1,<6.2"
 
 cd /vagrant
+python -m pip install -r requirements.txt
 python manage.py migrate
 
 if ! grep -q 'source /home/vagrant/venv/bin/activate' "$VAGRANT_HOME/.bashrc"; then

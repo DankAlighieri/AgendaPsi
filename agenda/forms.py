@@ -1,22 +1,25 @@
+import re
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction, IntegrityError
-from django.db.models import Exists, OuterRef
 from django.utils import timezone
-from .models import Agenda, Consulta, Paciente, Profissional
-from .services import MAX_SEMANAS_LOTE, horario_de_atendimento, horarios_padrao
+from .models import Agenda, Paciente, Profissional
+from .services import MAX_SEMANAS_LOTE, horarios_futuros
 ###
 # Reutilizando o modelo de dados ja definido
 
 class PacienteFormCadastro(forms.ModelForm):
 
     data_nascimento = forms.DateField(
-        label="Data de nascimento",
+        label="Data de nascimento (opcional)",
+        required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     cpf = forms.CharField(
-        label="CPF",
+        label="CPF (opcional)",
+        required=False,
         max_length=14,
         widget=forms.TextInput(attrs={
             "placeholder": "000.000.000-00",
@@ -38,9 +41,9 @@ class PacienteFormCadastro(forms.ModelForm):
         }),
     )
     email = forms.EmailField(
-        label="Email",
+        label="Email (opcional)",
         max_length=254,
-        required=True,
+        required=False,
     )
 
     class Meta:
@@ -50,7 +53,8 @@ class PacienteFormCadastro(forms.ModelForm):
 
     def clean_cpf(self):
         cpf = self.cleaned_data["cpf"].strip().replace(".", "").replace("-", "").replace(" ", "")
-        ## TODO: Fazer esta mesma validação para o CRP
+        if not cpf:
+            return ""
         if (
             len(cpf) != 11
             or not cpf.isascii()
@@ -76,8 +80,18 @@ class PacienteFormCadastro(forms.ModelForm):
         return cpf
     
     def clean_telefone(self):
-        return self.cleaned_data["telefone"].strip().replace("(", "").replace(")", "").replace("-", "").replace(" ", "") 
-    
+        telefone = re.sub(r"[\s().-]", "", self.cleaned_data["telefone"])
+        # DDD e número, com ou sem o código do país.
+        if not re.fullmatch(r"\+?[0-9]{10,13}", telefone):
+            raise forms.ValidationError("Informe um telefone válido, com DDD.")
+        return telefone
+
+    def clean_data_nascimento(self):
+        data = self.cleaned_data["data_nascimento"]
+        if data and data > timezone.localdate():
+            raise forms.ValidationError("A data de nascimento não pode ser no futuro.")
+        return data
+
     def clean_email(self):
         return self.cleaned_data["email"].strip().lower()
     
@@ -99,7 +113,14 @@ class ProfissionalFormCadastro(forms.ModelForm):
         fields = ["nome", "email", "telefone", "crp"]
 
     def clean_crp(self):
-        return self.cleaned_data["crp"].strip().replace("/","").replace(".", "").replace("-", "").replace(" ", "") # normalizacao da besta fera
+        # normalizacao melhor
+        crp = re.sub(r"[\s./-]", "", self.cleaned_data["crp"])
+        # 2 dígitos da região mais 4 a 6 do registro
+        if not re.fullmatch(r"[0-9]{6,8}", crp):
+            raise forms.ValidationError(
+                "Informe um CRP válido: região (2 dígitos) e registro (4 a 6 dígitos)."
+            )
+        return crp
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
@@ -120,8 +141,13 @@ class ProfissionalFormCadastro(forms.ModelForm):
         if senha and senha != cleaned.get("confirmarSenha"):
             self.add_error("confirmarSenha", "As senhas não são iguais!")
         elif senha:
+            email = cleaned.get("email", "")
+            # Usuário ainda não salvo, para comparar a senha com o e-mail e o nome.
+            candidato = get_user_model()(
+                username=email, email=email, first_name=cleaned.get("nome", "")
+            )
             try:
-                validate_password(senha)
+                validate_password(senha, user=candidato)
             except forms.ValidationError as exec:
                 self.add_error("senha", exec)
         return cleaned
@@ -140,29 +166,45 @@ class ProfissionalFormCadastro(forms.ModelForm):
                 profissional.user = user
                 if commit:
                     profissional.save()
-        ##TODO: 
-        # Especificar qual dualidade realmente ocorreu (email ou crp) ou se foi outro erro (erro de cadastro no servidor)
         except IntegrityError:
-            raise forms.ValidationError("Este profissional já existe")
+            erros = self._campos_em_conflito()
+            if not erros:
+                raise
+            raise forms.ValidationError(erros)
         return profissional
+
+    def _campos_em_conflito(self):
+        email = self.cleaned_data["email"]
+        erros = {}
+        if (
+            Profissional.objects.filter(email__iexact=email).exists()
+            or get_user_model().objects.filter(username__iexact=email).exists()
+        ):
+            erros["email"] = "Já existe um profissional com este e-mail."
+        if Profissional.objects.filter(crp=self.cleaned_data["crp"]).exists():
+            erros["crp"] = "Já existe um profissional com este CRP."
+        return erros
 
 class ProfissionalFormUpdate(forms.ModelForm):
     class Meta:
         model = Profissional
         fields = ["email", "telefone"]
+        labels = {"email": "E-mail", "telefone": "Telefone"}
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()
         User = get_user_model()
 
-        emailExiste = Profissional.objects.filter(
-            email_iexact=email
+        outro_profissional = Profissional.objects.filter(
+            email__iexact=email
         ).exclude(pk=self.instance.pk)
-        userExiste = Profissional.objects.filter(
-            username_iexact=email
-        ).exclude(pk=self.instance.pk)
-        if emailExiste.exists() or userExiste.exists():
-            raise forms.ValidationError("Já existe um profissional com este email!")
+        outro_user = User.objects.filter(
+            username__iexact=email
+        ).exclude(pk=self.instance.user_id)
+        if outro_profissional.exists() or outro_user.exists():
+            raise forms.ValidationError("Já existe um profissional com este e-mail.")
+
+        return email
 
     def save(self, commit=True):
         profissional = super().save(commit=False)
@@ -172,12 +214,14 @@ class ProfissionalFormUpdate(forms.ModelForm):
         try:
             with transaction.atomic():
                 user = profissional.user
-                user.email = user.username = self.cleaned_data["email"]
-                user.save(update_fields=["email","telefone"])
-                profissional.save(update_fields=["email","telefone"])
+                user.email = user.username = profissional.email
+                user.save(update_fields=["email", "username"])
+                profissional.save(update_fields=["email", "telefone"])
         except IntegrityError:
-            raise forms.ValidationError("Nao foi possivel atualizar os dados")
-        
+            raise forms.ValidationError(
+                {"email": "Já existe um profissional com este e-mail."}
+            )
+
         return profissional
 
 class LoginForm(forms.Form):
@@ -203,30 +247,12 @@ class ConsultaForm(forms.Form):
     def __init__(self, *args, profissional, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['paciente'].queryset = profissional.pacientes.order_by('nome')
-        ocupadas = Consulta.objects.filter(
-            paciente__profissional=profissional, data_hora=OuterRef('data_hora')
-        ).exclude(status=Consulta.Status.CANCELADA)
-        horarios_padrao(profissional)
-
-        self.fields['agenda'].queryset = Agenda.objects.filter(
-            profissional=profissional,
-            data_hora__gt=timezone.now(),
-        ).annotate(
-            reservado=Exists(ocupadas)
-        ).filter(
+        self.fields['agenda'].queryset = horarios_futuros(profissional).filter(
             reservado=False
         ).select_related('profissional')
         self.fields['agenda'].error_messages['invalid_choice'] = (
             'Este horário não está disponível. Escolha outro horário da lista.'
         )
-
-    def clean_agenda(self):
-        agenda = self.cleaned_data['agenda']
-        if not horario_de_atendimento(agenda.data_hora):
-            raise forms.ValidationError(
-                'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
-            )
-        return agenda
 
 
 class HorarioIndividualForm(forms.Form):

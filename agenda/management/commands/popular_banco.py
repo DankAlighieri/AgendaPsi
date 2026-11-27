@@ -6,7 +6,9 @@ from django.db import transaction
 from django.utils import timezone
 from faker import Faker
 
-from agenda.models import Consulta, Paciente, Profissional, Tratamento
+from agenda.models import Consulta, Paciente, Tratamento
+
+from ._dados_fake import criar_profissional, telefone_fake
 
 
 class Command(BaseCommand):
@@ -16,8 +18,12 @@ class Command(BaseCommand):
         parser.add_argument('--profissionais', type=int, default=5)
         parser.add_argument('--pacientes-por-profissional', type=int, default=4)
         parser.add_argument('--consultas-por-paciente', type=int, default=2)
-        parser.add_argument('--tratamentos-por-consulta', type=int, default=1)
+        parser.add_argument('--tratamentos-por-paciente', type=int, default=1)
         parser.add_argument('--seed', type=int, default=None)
+        parser.add_argument(
+            '--senha', default=None,
+            help='Senha dos profissionais criados. Sem ela, eles nao conseguem entrar.',
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -35,19 +41,14 @@ class Command(BaseCommand):
         treatments_created = 0
 
         for _ in range(options['profissionais']):
-            professional = Profissional.objects.create(
-                nome=fake.name(),
-                email=fake.unique.email(),
-                telefone=fake.numerify('(##) #####-####'),
-                crp=fake.unique.numerify('##/#####'),
-            )
+            professional = criar_profissional(fake, options['senha'])
             professionals_created += 1
 
             for _ in range(options['pacientes_por_profissional']):
                 patient = Paciente.objects.create(
                     profissional=professional,
                     nome=fake.name(),
-                    telefone=fake.numerify('(##) #####-####'),
+                    telefone=telefone_fake(fake),
                     email=fake.email(),
                 )
                 patients_created += 1
@@ -58,23 +59,23 @@ class Command(BaseCommand):
                         end_date='+30d',
                         tzinfo=timezone.get_current_timezone(),
                     )
-                    appointment = Consulta.objects.create(
+                    Consulta.objects.create(
                         paciente=patient,
                         data_hora=appointment_date,
                         status=generator.choice(Consulta.Status.values),
                     )
                     appointments_created += 1
 
-                    for _ in range(options['tratamentos_por_consulta']):
-                        start_date = appointment_date.date()
-                        Tratamento.objects.create(
-                            consulta=appointment,
-                            data_inicio=start_date,
-                            data_fim_prevista=start_date + timedelta(days=90),
-                            frequencia=generator.choice(Tratamento.Frequencia.values),
-                            ativo=True,
-                        )
-                        treatments_created += 1
+                for _ in range(options['tratamentos_por_paciente']):
+                    start_date = fake.date_between(start_date='-1y', end_date='today')
+                    Tratamento.objects.create(
+                        paciente=patient,
+                        data_inicio=start_date,
+                        data_fim_prevista=start_date + timedelta(days=90),
+                        frequencia=generator.choice(Tratamento.Frequencia.values),
+                        ativo=True,
+                    )
+                    treatments_created += 1
 
         self.stdout.write(self.style.SUCCESS(
             'Dados criados com sucesso: '

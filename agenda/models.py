@@ -8,7 +8,6 @@ class Profissional(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='profissional',
-        null=True,  # temporário, para a migração rodar com dados mocados existentes 
     )
     nome = models.CharField(max_length=150)
     email = models.EmailField(unique=True)
@@ -27,16 +26,13 @@ class Paciente(models.Model):
     )
 
     data_nascimento = models.DateField(null=True, blank=True)
-    cpf = models.CharField(max_length=14, blank=False) #verificar se o usuario poderá poderá se registrar em dois psicologos, e se essa verificacao é somente no db do usuario/profissional que está acessando
+    cpf = models.CharField(max_length=14, blank=True)
     nome = models.CharField(max_length=150)
     telefone = models.CharField(max_length=20, blank=False)
-    email = models.EmailField(blank=False)
+    email = models.EmailField(blank=True)
 
     class Meta:
         constraints = [
-            models.CheckConstraint(
-                condition=~models.Q(email=""), name="paciente_email_preenchido"
-            ),
             models.CheckConstraint(
                 condition=~models.Q(telefone=""), name="paciente_telefone_preenchido"
             ),
@@ -50,6 +46,8 @@ class Agenda(models.Model):
         Profissional, on_delete=models.CASCADE, related_name='agenda'
     )
     data_hora = models.DateTimeField('Data e horário')
+    # True quando veio da grade padrão; cadastro manual ou em lote é False.
+    automatico = models.BooleanField('Gerado pela grade', default=False)
 
     class Meta:
         ordering = ['data_hora']

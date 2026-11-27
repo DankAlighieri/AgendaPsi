@@ -2,6 +2,7 @@ from datetime import datetime, timezone as datetime_timezone
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import time, timedelta
@@ -11,16 +12,6 @@ from .models import Agenda, Consulta, LoteAgenda
 HORAS_ATENDIMENTO = (8, 9, 10, 11, 14, 15, 16, 17)
 DIAS_DISPONIVEIS = 30
 MAX_SEMANAS_LOTE = 52
-
-
-
-
-def horario_de_atendimento(data_hora):
-    local = timezone.localtime(data_hora)
-    return (
-        local.weekday() < 5 and local.hour in HORAS_ATENDIMENTO
-        and local.minute == local.second == local.microsecond == 0
-    )
 
 
 def horarios_padrao(profissional):
@@ -40,10 +31,25 @@ def horarios_padrao(profissional):
         profissional=profissional, data_hora__in=datas
     ).values_list('data_hora', flat=True))
     Agenda.objects.bulk_create([
-        Agenda(profissional=profissional, data_hora=inicio)
+        Agenda(profissional=profissional, data_hora=inicio, automatico=True)
         for inicio in datas if inicio not in existentes
     ], ignore_conflicts=True)
     return Agenda.objects.filter(profissional=profissional, data_hora__in=datas)
+
+
+def horarios_futuros(profissional):
+    """Todos os horários futuros (grade e manuais), marcando os reservados."""
+    horarios_padrao(profissional)
+    consultas_ativas = Consulta.objects.filter(
+        paciente__profissional=profissional,
+        data_hora=OuterRef('data_hora'),
+    ).exclude(status=Consulta.Status.CANCELADA)
+    return Agenda.objects.filter(
+        profissional=profissional,
+        data_hora__gt=timezone.now(),
+    ).annotate(
+        reservado=Exists(consultas_ativas)
+    ).order_by('data_hora')
 
 
 def agendar_consulta(*, profissional, paciente, horario):
@@ -57,8 +63,6 @@ def agendar_consulta(*, profissional, paciente, horario):
                 raise ValidationError('Selecione um cliente deste psicólogo.')
             if horario.data_hora <= timezone.now():
                 raise ValidationError('Selecione um horário no futuro.')
-            if not horario_de_atendimento(horario.data_hora):
-                raise ValidationError('Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.')
             consulta = Consulta(
                 paciente=paciente, agenda=horario, data_hora=horario.data_hora
             )
@@ -106,13 +110,22 @@ def criar_horario_individual(*, profissional, data, hora):
 
     if data_hora <= timezone.now():
         raise ValidationError('Selecione uma data e horário futuros.')
-    if not horario_de_atendimento(data_hora):
-        raise ValidationError(
-            'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
-        )
 
     try:
         with transaction.atomic():
+            # Um horário gerado pela grade passa a ser do profissional.
+            adotados = Agenda.objects.filter(
+                profissional=profissional,
+                data_hora=data_hora,
+                automatico=True,
+            ).update(automatico=False)
+
+            if adotados:
+                return Agenda.objects.get(
+                    profissional=profissional,
+                    data_hora=data_hora,
+                )
+
             return Agenda.objects.create(
                 profissional=profissional,
                 data_hora=data_hora,
@@ -129,6 +142,19 @@ def criar_horario_individual(*, profissional, data, hora):
             ) from exc
 
         raise
+
+
+def _conflitos_manuais(profissional, horarios):
+    """Horários já cadastrados pelo profissional (os da grade não contam)."""
+    return list(
+        Agenda.objects.filter(
+            profissional=profissional,
+            data_hora__in=horarios,
+            automatico=False,
+        )
+        .order_by('data_hora')
+        .values_list('data_hora', flat=True)
+    )
 
 
 def _mensagem_conflitos(conflitos):
@@ -169,11 +195,6 @@ def criar_horarios_lote(
         for semana in range(semanas)
     ]
 
-    if any(not horario_de_atendimento(data_hora) for data_hora in horarios):
-        raise ValidationError(
-            'Selecione um horário de segunda a sexta, das 8h às 12h ou das 14h às 18h.'
-        )
-
     if any(data_hora <= timezone.now() for data_hora in horarios):
         raise ValidationError('Todos os horários do lote devem ser futuros.')
 
@@ -194,14 +215,7 @@ def criar_horarios_lote(
                     )
                 return 0
 
-            conflitos = list(
-                Agenda.objects.filter(
-                    profissional=profissional,
-                    data_hora__in=horarios,
-                )
-                .order_by('data_hora')
-                .values_list('data_hora', flat=True)
-            )
+            conflitos = _conflitos_manuais(profissional, horarios)
 
             if conflitos:
                 raise ValidationError(_mensagem_conflitos(conflitos))
@@ -212,12 +226,29 @@ def criar_horarios_lote(
                 payload_hash=payload_hash,
             )
 
+            # Sem conflitos, o que já existe veio da grade e é adotado pelo lote.
+            da_grade = dict(
+                Agenda.objects.filter(
+                    profissional=profissional,
+                    data_hora__in=horarios,
+                ).values_list('data_hora', 'pk')
+            )
+            adotados = Agenda.objects.filter(
+                pk__in=da_grade.values(),
+                automatico=True,
+            ).update(automatico=False)
+
+            if adotados != len(da_grade):
+                raise ValidationError(
+                    'A agenda mudou durante o cadastro. Tente novamente.'
+                )
+
             Agenda.objects.bulk_create([
                 Agenda(
                     profissional=profissional,
                     data_hora=data_hora,
                 )
-                for data_hora in horarios
+                for data_hora in horarios if data_hora not in da_grade
             ])
 
     except IntegrityError as exc:
@@ -233,14 +264,7 @@ def criar_horarios_lote(
                 'Esta chave já foi usada com outros dados.'
             ) from exc
 
-        conflitos = list(
-            Agenda.objects.filter(
-                profissional=profissional,
-                data_hora__in=horarios,
-            )
-            .order_by('data_hora')
-            .values_list('data_hora', flat=True)
-        )
+        conflitos = _conflitos_manuais(profissional, horarios)
 
         if conflitos:
             raise ValidationError(_mensagem_conflitos(conflitos)) from exc

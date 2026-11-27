@@ -1,12 +1,23 @@
 import random
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 from faker import Faker
 
-from agenda.models import Consulta, Paciente, Profissional, Tratamento
+from agenda.models import (
+    Atividade,
+    Consulta,
+    ObjetivoTerapeutico,
+    ObservacaoConsulta,
+    Paciente,
+    Profissional,
+    Tratamento,
+)
+
+from ._dados_fake import criar_profissional, telefone_fake
 
 
 class Command(BaseCommand):
@@ -18,6 +29,10 @@ class Command(BaseCommand):
         parser.add_argument('--consultas', type=int, default=500)
         parser.add_argument('--tratamentos', type=int, default=300)
         parser.add_argument(
+            '--senha', default=None,
+            help='Senha dos profissionais criados. Sem ela, eles nao conseguem entrar.',
+        )
+        parser.add_argument(
             '--clear',
             action='store_true',
             help='Apaga os dados da agenda antes de criar a carga fake.',
@@ -28,27 +43,18 @@ class Command(BaseCommand):
         fake = Faker('pt_BR')
 
         if options['clear']:
-            Tratamento.objects.all().delete()
-            Consulta.objects.all().delete()
-            Paciente.objects.all().delete()
-            Profissional.objects.all().delete()
+            self._limpar()
 
         profissionais = [
-            Profissional(
-                nome=fake.name(),
-                email=fake.unique.email(),
-                telefone=fake.phone_number()[:20],
-                crp=f'CRP-{fake.unique.random_number(digits=7, fix_len=True)}',
-            )
+            criar_profissional(fake, options['senha'])
             for _ in range(options['profissionais'])
         ]
-        Profissional.objects.bulk_create(profissionais)
 
         pacientes = [
             Paciente(
                 profissional=random.choice(profissionais),
                 nome=fake.name(),
-                telefone=fake.phone_number()[:20],
+                telefone=telefone_fake(fake),
                 email=fake.email(),
             )
             for _ in range(options['pacientes'])
@@ -71,7 +77,7 @@ class Command(BaseCommand):
             data_inicio = fake.date_between(start_date='-1y', end_date='today')
             tratamentos.append(
                 Tratamento(
-                    consulta=random.choice(consultas),
+                    paciente=random.choice(pacientes),
                     data_inicio=data_inicio,
                     data_fim_prevista=data_inicio + timedelta(days=random.randint(30, 365)),
                     frequencia=random.choice([
@@ -87,3 +93,18 @@ class Command(BaseCommand):
             f'{len(pacientes)} pacientes, {len(consultas)} consultas e '
             f'{len(tratamentos)} tratamentos.'
         ))
+
+    def _limpar(self):
+        # A ordem respeita as chaves protegidas (PROTECT).
+        for modelo in (
+            ObjetivoTerapeutico, ObservacaoConsulta, Atividade,
+            Tratamento, Consulta, Paciente,
+        ):
+            modelo.objects.all().delete()
+
+        # Contas administrativas são preservadas.
+        usuarios = list(get_user_model().objects.filter(
+            profissional__isnull=False, is_staff=False, is_superuser=False,
+        ).values_list('pk', flat=True))
+        Profissional.objects.all().delete()
+        get_user_model().objects.filter(pk__in=usuarios).delete()
