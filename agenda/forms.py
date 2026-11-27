@@ -1,4 +1,3 @@
-import uuid
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -146,7 +145,41 @@ class ProfissionalFormCadastro(forms.ModelForm):
         except IntegrityError:
             raise forms.ValidationError("Este profissional já existe")
         return profissional
-    
+
+class ProfissionalFormUpdate(forms.ModelForm):
+    class Meta:
+        model = Profissional
+        fields = ["email", "telefone"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        User = get_user_model()
+
+        emailExiste = Profissional.objects.filter(
+            email_iexact=email
+        ).exclude(pk=self.instance.pk)
+        userExiste = Profissional.objects.filter(
+            username_iexact=email
+        ).exclude(pk=self.instance.pk)
+        if emailExiste.exists() or userExiste.exists():
+            raise forms.ValidationError("Já existe um profissional com este email!")
+
+    def save(self, commit=True):
+        profissional = super().save(commit=False)
+
+        if not commit:
+            return profissional
+        try:
+            with transaction.atomic():
+                user = profissional.user
+                user.email = user.username = self.cleaned_data["email"]
+                user.save(update_fields=["email","telefone"])
+                profissional.save(update_fields=["email","telefone"])
+        except IntegrityError:
+            raise forms.ValidationError("Nao foi possivel atualizar os dados")
+        
+        return profissional
+
 class LoginForm(forms.Form):
     email = forms.CharField(
         label="email",
