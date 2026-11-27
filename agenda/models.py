@@ -123,6 +123,11 @@ class Consulta(models.Model):
 
 class Tratamento(models.Model):
 
+    class Situacao(models.TextChoices):
+            ATIVO = 'ATIVO','Em atividade'
+            FINALIZADO = 'FINALIZADO', 'Tratamento finalizado'
+            SUSPENSO = 'SUSPENSO', 'Tratamento interrompido'
+
     class Frequencia(models.TextChoices):
         DUASVEZES = 'DUAS VEZES', 'Duas vezes por semana'
         SEMANAL = 'SEMANAL', 'Semanal'
@@ -146,7 +151,6 @@ class Tratamento(models.Model):
     )
 
     objetivo = models.TextField(blank=True)
-
     ativo = models.BooleanField(default=True)
 
     def __str__(self):

@@ -5,4 +5,5 @@ urlpatterns = [
     path('profissionais/<int:profissional_id>/agenda/', views.agenda_profissional, name='agendaProfissional'),
     path('profissionais/<int:profissional_id>/consultas/nova/', views.cadastro_consulta, name='cadastroConsulta'),
     path("pacientes/novo/", views.cadastroPaciente, name="cadastroPaciente"),
+    path("tratamentos/novo/", views.cadastroTratamento, name="cadastroTratamento"),
 ]

@@ -87,9 +87,8 @@ class TratamentoAdmin(admin.ModelAdmin):
         'data_inicio',
         'data_fim_prevista',
         'frequencia',
-        'ativo',
     )
-    list_filter = ('frequencia', 'ativo')
+    list_filter = ('frequencia',)
     inlines = [ObjetivoTerapeuticoInline]
 
 

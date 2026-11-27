@@ -1,5 +1,5 @@
-from .forms import ConsultaForm, ProfissionalFormCadastro, LoginForm,PacienteFormCadastro
-from .models import Consulta, Profissional
+from .forms import ConsultaForm, ProfissionalFormCadastro, LoginForm,PacienteFormCadastro,TratamentoFormCadastro
+from .models import Consulta, Profissional,Tratamento
 from .services import agendar_consulta, horarios_padrao
 from .decorators import profissional_required
 from django.core.exceptions import ValidationError
@@ -49,6 +49,20 @@ def loginProfissional(req):
         form = LoginForm()
     return render(req, "login.html", {"form":form})
 
+@profissional_required
+def cadastroTratamento(req):
+    form = TratamentoFormCadastro(
+        req.POST if req.method == "POST" else None,
+        profissional=req.profissional,
+    )
+
+    if req.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(req, "Tratamento cadastrado")
+        return redirect("cadastroTratamento")
+
+    return render(req, "cadastro.html", {"form": form})       
+        
 ## TODO: Metodo de logout
 @profissional_required
 def cadastroPaciente(req):

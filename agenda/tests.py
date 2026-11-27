@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import Profissional, Paciente
-from .forms import ConsultaForm,PacienteFormCadastro
-from .models import Agenda, Consulta, Paciente, Profissional
+from .forms import ConsultaForm, PacienteFormCadastro, TratamentoFormCadastro
+from .models import Agenda, Consulta, Paciente, Profissional, Tratamento
 from .services import agendar_consulta, horarios_padrao
 from agenda.models import Paciente
 from agenda.views import cadastroPaciente
@@ -158,11 +158,140 @@ class CadastroPacienteViewTest(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("cpf", form.errors)
 
-    
-            
+class TratamentoFormCadastroTest(TestCase):
+    def setUp(self):
+        self.profissional = Profissional.objects.create(
+            nome="Ana",
+            email="ana@example.com",
+            telefone="111",
+            crp="123",
+        )
+        self.paciente = Paciente.objects.create(
+            profissional=self.profissional,
+            nome="Cliente",
+            telefone="333",
+        )
 
-    
-    
+    def test_campos_do_formulario_de_tratamento(self):
+        form = TratamentoFormCadastro(profissional=self.profissional)
+
+        self.assertEqual(
+            list(form.fields),
+            [
+                "paciente",
+                "data_inicio",
+                "data_fim_prevista",
+                "frequencia",
+                "objetivo",
+            ],
+        )
+        self.assertQuerySetEqual(form.fields["paciente"].queryset, [self.paciente])
+
+    def test_formulario_valida_datas_do_tratamento(self):
+        form = TratamentoFormCadastro(data={
+            "paciente": self.paciente.pk,
+            "data_inicio": "2026-11-27",
+            "data_fim_prevista": "2026-11-20",
+            "frequencia": Tratamento.Frequencia.SEMANAL,
+            "objetivo": "Reduzir sintomas",
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("data_fim_prevista", form.errors)
+
+class CadastroTratamentoViewTest(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username="ana@example.com",
+            password="senha123",
+        )
+        self.profissional = Profissional.objects.create(
+            user=self.user,
+            nome="Ana",
+            email="ana@example.com",
+            telefone="111",
+            crp="123",
+        )
+        self.paciente = Paciente.objects.create(
+            profissional=self.profissional,
+            nome="Cliente",
+            telefone="333",
+        )
+        self.outro_profissional = Profissional.objects.create(
+            nome="Bruno",
+            email="bruno@example.com",
+            telefone="222",
+            crp="456",
+        )
+        self.outro_paciente = Paciente.objects.create(
+            profissional=self.outro_profissional,
+            nome="Outro cliente",
+            telefone="444",
+        )
+        self.client.force_login(self.user)
+
+    def test_acesso_sem_login_redireciona_para_login(self):
+        self.client.logout()
+
+        response = self.client.get(reverse("cadastroTratamento"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('cadastroTratamento')}",
+        )
+
+    def test_get_lista_apenas_pacientes_do_profissional_logado(self):
+        response = self.client.get(reverse("cadastroTratamento"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "cadastro.html")
+        form = response.context["form"]
+        self.assertQuerySetEqual(
+            form.fields["paciente"].queryset,
+            [self.paciente],
+        )
+
+    def test_cadastra_tratamento_com_dados_validos(self):
+        response = self.client.post(reverse("cadastroTratamento"), {
+            "paciente": self.paciente.pk,
+            "data_inicio": "2026-11-27",
+            "data_fim_prevista": "2027-05-27",
+            "frequencia": Tratamento.Frequencia.SEMANAL,
+            "objetivo": "Reduzir sintomas",
+        })
+
+        self.assertRedirects(response, reverse("cadastroTratamento"))
+        tratamento = Tratamento.objects.get()
+        self.assertEqual(tratamento.paciente, self.paciente)
+        self.assertEqual(tratamento.frequencia, Tratamento.Frequencia.SEMANAL)
+        self.assertEqual(tratamento.objetivo, "Reduzir sintomas")
+
+    def test_nao_cadastra_tratamento_com_data_fim_anterior(self):
+        response = self.client.post(reverse("cadastroTratamento"), {
+            "paciente": self.paciente.pk,
+            "data_inicio": "2026-11-27",
+            "data_fim_prevista": "2026-11-20",
+            "frequencia": Tratamento.Frequencia.SEMANAL,
+            "objetivo": "Reduzir sintomas",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("data_fim_prevista", response.context["form"].errors)
+        self.assertFalse(Tratamento.objects.exists())
+
+    def test_nao_cadastra_tratamento_para_paciente_de_outro_profissional(self):
+        response = self.client.post(reverse("cadastroTratamento"), {
+            "paciente": self.outro_paciente.pk,
+            "data_inicio": "2026-11-27",
+            "data_fim_prevista": "2027-05-27",
+            "frequencia": Tratamento.Frequencia.SEMANAL,
+            "objetivo": "Reduzir sintomas",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("paciente", response.context["form"].errors)
+        self.assertFalse(Tratamento.objects.exists())
 
 class AgendamentoTests(TestCase):
     def setUp(self):

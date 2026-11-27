@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction, IntegrityError
 from django.db.models import Exists, OuterRef
-from .models import Agenda, Consulta, Paciente, Profissional
+from .models import Agenda, Consulta, Paciente, Profissional, Tratamento
 from .services import horarios_padrao
 
 # class ProfissionalForm(forms.Form):
@@ -26,9 +26,66 @@ from .services import horarios_padrao
 
 ###
 # Reutilizando o modelo de dados ja definido
+class TratamentoFormCadastro(forms.ModelForm):
+    paciente = forms.ModelChoiceField(
+        label="Paciente",
+        queryset=Paciente.objects.all().order_by("nome"),
+        empty_label="Selecione o paciente",
+    )
+    data_inicio = forms.DateField(
+        label="Data de início",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    data_fim_prevista = forms.DateField(
+        label="Data de término prevista",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    frequencia = forms.ChoiceField(
+        label="Frequência",
+        choices=Tratamento.Frequencia.choices,
+    )
+    objetivo = forms.CharField(
+        label="Objetivo",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
 
+    class Meta:
+        model = Tratamento
+        fields = [
+            "paciente",
+            "data_inicio",
+            "data_fim_prevista",
+            "frequencia",
+            "objetivo",
+        ]
+
+    def __init__(self, *args, profissional=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if profissional is not None:
+            self.fields["paciente"].queryset = Paciente.objects.filter(
+                profissional=profissional
+            ).order_by("nome")
+
+    def clean(self):
+        cleaned = super().clean()
+        data_inicio = cleaned.get("data_inicio")
+        data_fim_prevista = cleaned.get("data_fim_prevista")
+
+        if (
+            data_inicio
+            and data_fim_prevista
+            and data_fim_prevista < data_inicio
+        ):
+            self.add_error(
+                "data_fim_prevista",
+                "A data de término prevista não pode ser anterior à data de início.",
+            )
+
+        return cleaned
+    
 class PacienteFormCadastro(forms.ModelForm):
-
     data_nascimento = forms.DateField(
         label="Data de nascimento",
         widget=forms.DateInput(attrs={"type": "date"}),
